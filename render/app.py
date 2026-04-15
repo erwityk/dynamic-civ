@@ -261,7 +261,12 @@ class App:
             self.research_btn.enabled = True
             self.research_btn.draw(self.screen, self.font)
         elif r.status == "error":
-            y = self._draw_label(SIDEBAR_X, y, f"Research failed: {r.error}", color=(240, 140, 140))
+            y = self._draw_label(SIDEBAR_X, y, "Research failed:", color=(240, 140, 140))
+            y = self._draw_label(SIDEBAR_X, y, _wrap(r.error or "(unknown)", 38, max_lines=4),
+                                 color=(240, 180, 180), font=self.font_sm)
+            if r.log_path:
+                y = self._draw_label(SIDEBAR_X, y, f"log: {r.log_path}",
+                                     color=(160, 180, 200), font=self.font_sm)
             self.research_btn.rect.topleft = (SIDEBAR_X, y + 6)
             self.research_btn.label = "Try Again"
             self.research_btn.on_click = self._on_research_again
@@ -321,7 +326,7 @@ class App:
         pygame.quit()
 
 
-def _wrap(text: str, width: int) -> str:
+def _wrap(text: str, width: int, max_lines: int = 3) -> str:
     words = text.split()
     lines: list[str] = []
     cur = ""
@@ -333,4 +338,4 @@ def _wrap(text: str, width: int) -> str:
             cur = (cur + " " + w).strip()
     if cur:
         lines.append(cur)
-    return "\n".join(lines[:3])
+    return "\n".join(lines[:max_lines])

@@ -17,25 +17,28 @@ def register(api):
 def build_prompt(player_idea: str, mod_filename: str) -> str:
     bounds = ", ".join(f"{k} in [{lo},{hi}]" for k, (lo, hi) in STAT_BOUNDS.items())
     shapes = ", ".join(sorted(SHAPES))
-    return f"""You are generating a single Python mod file for a turn-based civilization game.
+    return f"""You are a code generator for a turn-based civilization game. This is a
+non-interactive task: **do NOT ask clarifying questions, do NOT explain your
+reasoning, do NOT read any other files**. Just invoke the Write tool exactly
+once with the file contents described below, then stop.
 
 The player researched: **{player_idea}**
 
-Create ONE new unit OR building (your choice, whichever fits the idea better) by writing a
-Python file. Write the file to: `{mod_filename}` using the Write tool.
+Task: pick ONE new unit OR building (whichever fits the idea) and Write a
+Python file at the path `{mod_filename}` (relative to the current working
+directory) containing valid Python source code.
 
-## Strict rules
+## Required file contents
 
-1. The file must define exactly one top-level function: `def register(api): ...`
-2. Inside `register`, call `api.register_unit(...)` OR `api.register_building(...)` exactly once.
-3. Do NOT `import` anything except: `math`, `random`, `dataclasses`.
-4. Do NOT read, write, or modify any file outside the per-game mods directory.
-5. Do NOT define any other top-level code that has side effects.
-6. Stat bounds (will be clamped if out of range): {bounds}.
-7. `shape` must be one of: {shapes}.
-8. `color` must be a tuple of 3 ints in [0, 255].
-9. Keep `description` under 300 characters.
-10. The `name` must be evocative of the player's idea and must not already exist.
+- Exactly one top-level function: `def register(api): ...`
+- Inside `register`, call `api.register_unit(...)` OR `api.register_building(...)` exactly once.
+- No other top-level statements with side effects.
+- If you import anything, it must be from: `math`, `random`, `dataclasses`. Imports are optional; prefer zero imports.
+- Stat bounds (values outside will be clamped): {bounds}.
+- `shape` must be one of: {shapes}.
+- `color` must be a tuple of 3 ints in [0, 255].
+- Keep `description` under 300 characters.
+- The `name` must be evocative of the player's idea and must differ from built-ins (Settler, Warrior, Granary).
 
 ## API signatures
 
@@ -62,5 +65,5 @@ api.register_building(
 {EXAMPLE.strip()}
 ```
 
-Now write the mod file for "{player_idea}". After writing, output nothing else.
+Now generate the file for "{player_idea}" and Write it to `{mod_filename}`. No questions. No commentary.
 """

@@ -48,6 +48,7 @@ class ResearchState:
     status: str = "idle"  # idle | accumulating | generating | done | error
     error: Optional[str] = None
     last_result_name: Optional[str] = None  # name of the unit/building just created
+    log_path: Optional[str] = None  # path to the most recent runner log
 
 
 @dataclass

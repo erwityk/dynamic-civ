@@ -30,6 +30,7 @@ class _Job:
     returncode: Optional[int] = None
     error: Optional[str] = None
     finished: bool = False
+    log_path: Optional[str] = None
 
 
 class ResearchRunner:
@@ -63,6 +64,7 @@ class ResearchRunner:
         # One-shot: consume result, clear job, apply to state.
         self._job = None
         r = self.state.research
+        r.log_path = job.log_path
         try:
             if job.error:
                 raise RuntimeError(job.error)
@@ -76,12 +78,15 @@ class ResearchRunner:
             r.status = "done"
             r.last_result_name = registered[0] if registered else "(unnamed)"
             r.error = None
+            print(f"[research] OK: {r.last_result_name} (mod: {target}; log: {job.log_path})")
         except ModLoadError as e:
             r.status = "error"
             r.error = f"bad mod: {e}"
+            print(f"[research] FAILED: {r.error} (log: {job.log_path})", file=sys.stderr)
         except Exception as e:
             r.status = "error"
             r.error = str(e)[:200]
+            print(f"[research] FAILED: {r.error} (log: {job.log_path})", file=sys.stderr)
 
     # ---------- worker thread ----------
 
@@ -100,32 +105,39 @@ class ResearchRunner:
         claude_path = shutil.which("claude")
         if claude_path is None:
             job.error = "claude CLI not found on PATH"
+            self._write_log(job, cmd=None)
             return
-        mod_path = self.mod_dir / job.mod_filename
-        prompt_text = build_prompt(job.prompt, str(mod_path).replace("\\", "/"))
+        # Sandbox: run Claude with cwd=mod_dir so the workspace IS the sandbox.
+        # No `--add-dir`: that widens scope, and we want it narrow. Claude sees
+        # only the mod_dir; the ModAPI contract is embedded in the prompt.
+        #
+        # Pass the prompt via stdin, not argv. The Windows `claude.CMD` wrapper
+        # re-parses argv through cmd.exe, which mangles multi-line prompts.
+        prompt_text = build_prompt(job.prompt, job.mod_filename)
         cmd = [
-            claude_path, "-p", prompt_text,
-            "--add-dir", str(self.mod_dir),
+            claude_path, "-p",
             "--permission-mode", "acceptEdits",
-            "--allowedTools", "Write", "Edit", "Read",
+            "--allowedTools", "Write,Edit,Read",
         ]
         try:
             proc = subprocess.Popen(
                 cmd,
+                stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                cwd=str(self.repo_root),
+                cwd=str(self.mod_dir),
                 # shell=False is fine because shutil.which resolves claude.cmd on Windows.
             )
         except Exception as e:
             job.error = f"failed to spawn claude: {e}"
+            self._write_log(job, cmd=cmd)
             return
         job.proc = proc
         try:
-            out, err = proc.communicate(timeout=self.timeout_sec)
+            out, err = proc.communicate(input=prompt_text, timeout=self.timeout_sec)
         except subprocess.TimeoutExpired:
             proc.kill()
             out, err = proc.communicate()
@@ -134,8 +146,36 @@ class ResearchRunner:
         job.stderr = err or ""
         job.returncode = proc.returncode
         if not job.error and proc.returncode != 0:
-            tail = (err or out or "").strip().splitlines()[-5:]
-            job.error = "claude exited non-zero: " + " | ".join(tail)
+            tail = (err or out or "").strip().splitlines()[-3:]
+            job.error = f"claude exited {proc.returncode}: " + " | ".join(tail)
+        self._write_log(job, cmd=cmd)
+
+    def _write_log(self, job: _Job, cmd: Optional[list[str]]) -> None:
+        try:
+            log_path = self.mod_dir / "_research.log"
+            with log_path.open("a", encoding="utf-8") as f:
+                f.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
+                f.write(f"PROMPT: {job.prompt}\n")
+                f.write(f"FILE:   {job.mod_filename}\n")
+                if cmd is not None:
+                    # Truncate the embedded prompt arg so the log stays readable.
+                    pretty = []
+                    for i, a in enumerate(cmd):
+                        if i > 0 and cmd[i - 1] == "-p" and len(a) > 200:
+                            pretty.append(a[:200] + f"... [{len(a)} chars]")
+                        else:
+                            pretty.append(a)
+                    f.write(f"CMD:    {pretty}\n")
+                f.write(f"RC:     {job.returncode}\n")
+                if job.error:
+                    f.write(f"ERROR:  {job.error}\n")
+                f.write("---- STDOUT ----\n")
+                f.write(job.stdout or "(empty)\n")
+                f.write("\n---- STDERR ----\n")
+                f.write(job.stderr or "(empty)\n")
+            job.log_path = str(log_path)
+        except Exception:
+            pass
 
     def _write_stub_mod(self, job: _Job) -> None:
         """Generate a simple mod locally — for dev iteration without calling Claude."""
@@ -152,6 +192,9 @@ class ResearchRunner:
     )
 '''
         path.write_text(src, encoding="utf-8")
+        job.stdout = f"stub wrote {path}"
+        job.returncode = 0
+        self._write_log(job, cmd=None)
         # Simulate thinking time so progress spinner is visible.
         time.sleep(1.0)
 
