@@ -11,6 +11,12 @@ class Terrain(str, Enum):
 
 
 @dataclass
+class Civilization:
+    name: str
+    color: tuple[int, int, int]  # RGB used for unit border tint
+
+
+@dataclass
 class Unit:
     id: int
     type_name: str
@@ -18,6 +24,7 @@ class Unit:
     y: int
     hp: int = 10
     moves_left: int = 0
+    owner: str = "player"  # matches Civilization.name or "player"
 
 
 @dataclass
@@ -31,6 +38,7 @@ class City:
     production_stock: int = 0
     build_target: Optional[str] = None  # unit or building type name
     buildings: list[str] = field(default_factory=list)
+    owner: str = "player"
 
 
 @dataclass
@@ -58,6 +66,7 @@ class GameState:
     tiles: list[list[Tile]]  # tiles[x][y]
     units: list[Unit] = field(default_factory=list)
     cities: list[City] = field(default_factory=list)
+    civs: list[Civilization] = field(default_factory=list)
     turn: int = 1
     science: int = 0
     research: ResearchState = field(default_factory=ResearchState)

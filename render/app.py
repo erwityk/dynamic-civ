@@ -6,7 +6,8 @@ import pygame
 
 from engine.registry import Registry
 from engine.state import City, GameState, Terrain, Unit
-from engine.turn import end_turn, found_city, move_unit, reset_unit_moves
+from engine.ai import run_ai_turn
+from engine.turn import attack, end_turn, found_city, move_unit, reset_unit_moves
 from render.draw import GRID_ORIGIN, TILE, draw_city, draw_map, draw_top_bar, draw_unit, screen_to_tile, tile_to_screen
 from render.ui import Button, TextInput, Toasts
 
@@ -65,6 +66,7 @@ class App:
 
     def _on_end_turn(self) -> None:
         end_turn(self.state, self.reg)
+        run_ai_turn(self.state, self.reg)
         self.selected_unit = None
         self.toasts.add(f"Turn {self.state.turn}")
 
@@ -115,7 +117,7 @@ class App:
             city_here = self.state.city_at(tx, ty)
             unit_here = self.state.unit_at(tx, ty)
             if self.selected_unit:
-                # Solo sandbox: all units are friendly, so no attack path. Just move.
+                # Only move onto empty tiles; enemy tiles require right-click attack.
                 if unit_here is None and move_unit(self.state, self.selected_unit, tx, ty):
                     return
             # Otherwise: selection.
@@ -128,6 +130,36 @@ class App:
             else:
                 self.selected_unit = None
                 self.selected_city = None
+        # Right click: attack.
+        elif button == 3:
+            if self.selected_unit is None:
+                return
+            target = self.state.unit_at(tx, ty)
+            if target is None or target.owner == self.selected_unit.owner:
+                return
+            self._do_attack(self.selected_unit, target, tx, ty)
+
+    def _do_attack(self, attacker: Unit, target: Unit, tx: int, ty: int) -> None:
+        """Attempt attack and display a toast with the outcome."""
+        atk_name = attacker.type_name
+        def_name = target.type_name
+        attacker_hp_before = attacker.hp
+
+        success = attack(self.state, self.reg, attacker, tx, ty)
+        if not success:
+            return  # out of moves, not adjacent, or other precondition failed
+
+        attacker_dead = attacker not in self.state.units
+        target_dead = self.state.unit_at(tx, ty) is None
+
+        if attacker_dead:
+            self.toasts.add(f"{atk_name} attacks {def_name} — attacker lost!", color=(180, 60, 60))
+            self.selected_unit = None
+        elif target_dead:
+            self.toasts.add(f"{atk_name} attacks {def_name} — wins!", color=(60, 180, 60))
+        else:
+            dmg = attacker_hp_before - attacker.hp
+            self.toasts.add(f"{atk_name} attacks {def_name} — takes {dmg} damage (HP {attacker.hp})", color=(200, 160, 60))
 
     def _poll_events(self) -> bool:
         for event in pygame.event.get():

@@ -20,8 +20,9 @@ def can_move_to(state: GameState, unit: Unit, nx: int, ny: int) -> bool:
     tile = state.tile(nx, ny)
     if tile is None or tile.terrain == Terrain.WATER:
         return False
-    # Friendly stacking blocked (single-player: any unit blocks).
-    if state.unit_at(nx, ny) is not None:
+    # Same-owner stacking blocked; enemy-occupied tiles require attack() instead.
+    blocker = state.unit_at(nx, ny)
+    if blocker is not None and blocker.owner == unit.owner:
         return False
     return True
 
@@ -43,7 +44,7 @@ def found_city(state: GameState, reg: Registry, unit: Unit, name: str) -> City |
         return None
     if state.city_at(unit.x, unit.y) is not None:
         return None
-    city = City(id=state.new_id(), name=name, x=unit.x, y=unit.y)
+    city = City(id=state.new_id(), name=name, x=unit.x, y=unit.y, owner=unit.owner)
     state.cities.append(city)
     state.units.remove(unit)
     return city
@@ -57,7 +58,8 @@ def attack(state: GameState, reg: Registry, attacker: Unit, tx: int, ty: int) ->
     target = state.unit_at(tx, ty)
     if target is None:
         return False
-    # Placeholder: attacker wins if attack >= target defense, else both damaged.
+    if attacker.owner == target.owner:
+        return False  # no friendly fire
     at = reg.unit_types.get(attacker.type_name)
     dt = reg.unit_types.get(target.type_name)
     if at is None or dt is None:
@@ -119,6 +121,7 @@ def _apply_city_tick(state: GameState, reg: Registry, city: City) -> None:
                 state.units.append(Unit(
                     id=state.new_id(), type_name=target,
                     x=spawn[0], y=spawn[1], moves_left=0,
+                    owner=city.owner,
                 ))
         elif building_type:
             if target not in city.buildings:

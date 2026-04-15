@@ -39,8 +39,10 @@ def draw_map(surf: pygame.Surface, state: GameState) -> None:
 
 def draw_city(surf: pygame.Surface, city, font: pygame.font.Font) -> None:
     sx, sy = tile_to_screen(city.x, city.y)
-    pygame.draw.rect(surf, (230, 210, 120), (sx + 3, sy + 3, TILE - 6, TILE - 6))
-    pygame.draw.rect(surf, (80, 50, 10), (sx + 3, sy + 3, TILE - 6, TILE - 6), width=2)
+    fill = (230, 210, 120) if city.owner == "player" else (200, 80, 80)
+    border = (80, 50, 10) if city.owner == "player" else (120, 20, 20)
+    pygame.draw.rect(surf, fill, (sx + 3, sy + 3, TILE - 6, TILE - 6))
+    pygame.draw.rect(surf, border, (sx + 3, sy + 3, TILE - 6, TILE - 6), width=2)
     label = font.render(city.name, True, (255, 255, 255))
     bg = pygame.Rect(sx - 4, sy - 14, label.get_width() + 8, 14)
     pygame.draw.rect(surf, (0, 0, 0), bg)
@@ -51,6 +53,9 @@ def draw_unit(surf: pygame.Surface, unit: Unit, reg: Registry, selected: bool, f
     sx, sy = tile_to_screen(unit.x, unit.y)
     ut = reg.unit_types.get(unit.type_name)
     color = ut.color if ut else (200, 200, 200)
+    # Dim exhausted units so the player can see at a glance who has moves left.
+    if unit.moves_left == 0:
+        color = tuple(max(0, c // 2) for c in color)
     shape = ut.shape if ut else "circle"
     cx, cy = sx + TILE // 2, sy + TILE // 2
     r = TILE // 2 - 6
@@ -73,6 +78,8 @@ def draw_unit(surf: pygame.Surface, unit: Unit, reg: Registry, selected: bool, f
     surf.blit(txt, txt.get_rect(center=(cx, cy)))
     if selected:
         pygame.draw.rect(surf, (255, 230, 0), (sx, sy, TILE, TILE), width=2)
+    elif unit.owner != "player":
+        pygame.draw.rect(surf, (220, 50, 50), (sx, sy, TILE, TILE), width=2)
 
 
 def draw_top_bar(surf: pygame.Surface, state: GameState, font: pygame.font.Font) -> None:

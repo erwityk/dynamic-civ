@@ -15,9 +15,16 @@ def generate_map(width: int = 20, height: int = 20, water_ratio: float = 0.15, s
             col.append(Tile(x=x, y=y, terrain=terrain))
         tiles.append(col)
 
-    # Guarantee the center 3x3 is grass so starting units have room.
+    # Guarantee the center 3x3 is grass so player starting units have room.
     cx, cy = width // 2, height // 2
     for dx in range(-1, 2):
         for dy in range(-1, 2):
             tiles[cx + dx][cy + dy].terrain = Terrain.GRASS
+
+    # Guarantee a 3x3 grass patch at the AI start corner (bottom-right area).
+    acx, acy = width - 3, height - 3
+    for dx in range(-1, 2):
+        for dy in range(-1, 2):
+            tiles[acx + dx][acy + dy].terrain = Terrain.GRASS
+
     return tiles

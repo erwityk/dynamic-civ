@@ -8,7 +8,7 @@ from pathlib import Path
 
 from engine.map import generate_map
 from engine.registry import Registry, register_builtins
-from engine.state import GameState, Unit
+from engine.state import Civilization, GameState, Unit
 from engine.turn import reset_unit_moves
 from render.app import App
 
@@ -18,9 +18,19 @@ def new_game(seed: int | None = None) -> tuple[GameState, Registry]:
     register_builtins(reg)
     tiles = generate_map(20, 20, seed=seed)
     state = GameState(width=20, height=20, tiles=tiles)
+
+    # Player civilization.
+    state.civs.append(Civilization(name="player", color=(0, 180, 255)))
     cx, cy = 10, 10
-    state.units.append(Unit(id=state.new_id(), type_name="Settler", x=cx, y=cy))
-    state.units.append(Unit(id=state.new_id(), type_name="Warrior", x=cx + 1, y=cy))
+    state.units.append(Unit(id=state.new_id(), type_name="Settler", x=cx, y=cy, owner="player"))
+    state.units.append(Unit(id=state.new_id(), type_name="Warrior", x=cx + 1, y=cy, owner="player"))
+
+    # AI civilization — bottom-right corner (guaranteed grass by generate_map).
+    state.civs.append(Civilization(name="ai_1", color=(220, 60, 60)))
+    ax, ay = 17, 17
+    state.units.append(Unit(id=state.new_id(), type_name="Settler", x=ax, y=ay, owner="ai_1"))
+    state.units.append(Unit(id=state.new_id(), type_name="Warrior", x=ax - 1, y=ay, owner="ai_1"))
+
     reset_unit_moves(state, reg)
     return state, reg
 
