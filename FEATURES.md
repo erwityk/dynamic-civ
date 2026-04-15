@@ -94,30 +94,7 @@ Keep AI deterministic (seeded RNG per turn) so games are reproducible.
 
 ## 5. Terrain Types
 
-**Status:** Only `GRASS` and `WATER` exist. No movement cost variation, no combat modifiers.
-
-### 5a. New Terrain Types
-
-| Terrain   | Move cost | Defense bonus | Yield (food/prod/sci) | Notes                          |
-|-----------|-----------|---------------|-----------------------|--------------------------------|
-| Plains    | 1         | 0             | 1 / 1 / 0             | Default farmable land          |
-| Grass     | 1         | 0             | 2 / 0 / 0             | Current grass, high food       |
-| Forest    | 2         | +1            | 1 / 1 / 0             | Requires Lumberjack to chop    |
-| Hills     | 2         | +1            | 0 / 2 / 0             | Good for production            |
-| Mountain  | impassable| —             | —                     | Blocks movement                |
-| Desert    | 1         | 0             | 0 / 0 / 0             | Useless without Oasis building |
-| Tundra    | 1         | 0             | 1 / 0 / 0             | Peripheral map tiles           |
-| Water     | impassable| —             | —                     | Current; passable with ships   |
-
-### 5b. Map Generation
-- Replace the flat random placement with a noise-based heightmap (e.g., simple Perlin or midpoint-displacement with `random.Random`).
-- Height determines terrain: low → water, mid-low → plains/grass, mid → forest, high → hills, peak → mountain.
-- Clump similar terrain; avoid checkerboard patterns.
-- Add rivers as impassable lines (except at fords) that grant +1 food to adjacent tiles.
-
-### 5c. Movement Cost
-- `Unit.moves_left` tracks fractional moves; store as `float` or use integer tenths.
-- `can_move_to` deducts the destination tile's movement cost from `moves_left`.
+**Status: Implemented (§5a–5b).** Six terrain types added (Plains, Forest, Hills, Mountain, Desert, Tundra) plus existing Grass/Water. Map generation uses diamond-square heightmap (`engine/map.py`). Terrain metadata (move cost, defense bonus, yields) is embedded on the `Terrain` enum in `engine/state.py`. Forest/Hills cost 2 moves; Mountain/Water are impassable. Cities may only be founded on Grass or Plains. Terrain defense bonus wired into `attack()`. City yields derived from tile terrain. Not yet implemented: 5c rivers, Worker tile improvements (§7).
 
 ---
 
@@ -322,15 +299,15 @@ One-per-game buildings that can be constructed by any civ; once built, all other
 
 ## Priority Order (suggested)
 
-| Priority | Feature |
-|---|---|
-| 1 | Combat UI (§1a) — the engine code already exists |
-| 2 | Enemy AI basics (§2a–2b) — needed to make combat meaningful |
-| 3 | Terrain types (§5a–5b) — high visual/gameplay impact, isolated change |
-| 4 | Technology tree (§9a) — structure to the mid/late game |
-| 5 | Victory conditions (§10) — gives the game an end |
-| 6 | Currency & economy (§3) — adds decision-making to city management |
-| 7 | Fog of war (§13) — changes exploration incentive |
-| 8 | Unit progression (§11) — rewards keeping units alive |
-| 9 | Workers & improvements (§7) — tile optimization layer |
-| 10 | Save/Load (§14) — quality of life |
+| Priority | Feature | Status |
+|---|---|---|
+| 1 | Combat UI (§1a) | **Done** |
+| 2 | Enemy AI basics (§2a–2b) | **Done** |
+| 3 | Terrain types (§5a–5b) | **Done** |
+| 4 | Technology tree (§9a) — structure to the mid/late game | — |
+| 5 | Victory conditions (§10) — gives the game an end | — |
+| 6 | Currency & economy (§3) — adds decision-making to city management | — |
+| 7 | Fog of war (§13) — changes exploration incentive | — |
+| 8 | Unit progression (§11) — rewards keeping units alive | — |
+| 9 | Workers & improvements (§7) — tile optimization layer | — |
+| 10 | Save/Load (§14) — quality of life | — |

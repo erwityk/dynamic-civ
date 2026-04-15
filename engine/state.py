@@ -6,8 +6,30 @@ from typing import Optional
 
 
 class Terrain(str, Enum):
-    GRASS = "grass"
-    WATER = "water"
+    # Each member encodes: (str_val, move_cost, defense_bonus, food, prod, sci)
+    # move_cost == 0 means impassable.
+    GRASS    = ("grass",    1, 0, 2, 0, 0)
+    PLAINS   = ("plains",   1, 0, 1, 1, 0)
+    FOREST   = ("forest",   2, 1, 1, 1, 0)
+    HILLS    = ("hills",    2, 1, 0, 2, 0)
+    MOUNTAIN = ("mountain", 0, 0, 0, 0, 0)
+    DESERT   = ("desert",   1, 0, 0, 0, 0)
+    TUNDRA   = ("tundra",   1, 0, 1, 0, 0)
+    WATER    = ("water",    0, 0, 0, 0, 0)
+
+    def __new__(cls, str_val: str, move_cost: int, defense_bonus: int, food: int, prod: int, sci: int):
+        obj = str.__new__(cls, str_val)
+        obj._value_ = str_val
+        obj.move_cost = move_cost
+        obj.defense_bonus = defense_bonus
+        obj.food = food
+        obj.prod = prod
+        obj.sci = sci
+        return obj
+
+    @property
+    def passable(self) -> bool:
+        return self.move_cost > 0
 
 
 @dataclass

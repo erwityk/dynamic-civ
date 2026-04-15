@@ -9,8 +9,14 @@ TILE = 32
 GRID_ORIGIN = (8, 40)  # top-left of map area inside window
 
 TERRAIN_COLORS = {
-    Terrain.GRASS: (96, 150, 70),
-    Terrain.WATER: (50, 90, 170),
+    Terrain.GRASS:    (96,  150, 70),
+    Terrain.PLAINS:   (180, 190, 100),
+    Terrain.FOREST:   (34,  100, 34),
+    Terrain.HILLS:    (140, 110, 70),
+    Terrain.MOUNTAIN: (180, 180, 190),
+    Terrain.DESERT:   (210, 190, 120),
+    Terrain.TUNDRA:   (190, 200, 210),
+    Terrain.WATER:    (50,  90,  170),
 }
 
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 import random
 
 from .registry import Registry
-from .state import GameState, Terrain
-from .turn import attack, found_city, move_unit
+from .state import GameState
+from .turn import CITY_FOUNDING_TERRAINS, attack, found_city, move_unit
 
 AI_OWNER = "ai_1"
 _AI_CITY_COUNTER = 0
@@ -42,13 +42,13 @@ def _ai_expand(state: GameState, reg: Registry, rng: random.Random) -> None:
         # Try to found a city on the current tile.
         if state.city_at(settler.x, settler.y) is None:
             tile = state.tile(settler.x, settler.y)
-            if tile is not None and tile.terrain == Terrain.GRASS:
+            if tile is not None and tile.terrain in CITY_FOUNDING_TERRAINS:
                 _AI_CITY_COUNTER += 1
                 city = found_city(state, reg, settler, f"AI City {_AI_CITY_COUNTER}")
                 if city is not None:
                     continue  # settler consumed; city founded
-        # Move toward nearest unclaimed grass.
-        target = _nearest_unclaimed_grass(state, settler.x, settler.y)
+        # Move toward nearest valid city tile.
+        target = _nearest_valid_city_tile(state, settler.x, settler.y)
         if target is not None:
             _step_toward(state, settler, target[0], target[1])
 
@@ -107,14 +107,14 @@ def _step_toward(state: GameState, unit, tx: int, ty: int) -> bool:
     return False
 
 
-def _nearest_unclaimed_grass(state: GameState, x: int, y: int) -> tuple[int, int] | None:
-    """Return the nearest grass tile with no city, or None if none exists."""
+def _nearest_valid_city_tile(state: GameState, x: int, y: int) -> tuple[int, int] | None:
+    """Return the nearest unclaimed GRASS or PLAINS tile, or None if none exists."""
     best: tuple[int, int] | None = None
     best_dist = float("inf")
     for cx in range(state.width):
         for cy in range(state.height):
             tile = state.tiles[cx][cy]
-            if tile.terrain != Terrain.GRASS:
+            if tile.terrain not in CITY_FOUNDING_TERRAINS:
                 continue
             if state.city_at(cx, cy) is not None:
                 continue

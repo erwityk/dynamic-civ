@@ -4,6 +4,7 @@ from .registry import Registry
 from .state import City, GameState, Terrain, Unit
 
 FOOD_PER_GROWTH = 5
+CITY_FOUNDING_TERRAINS = {Terrain.GRASS, Terrain.PLAINS}
 
 
 def reset_unit_moves(state: GameState, reg: Registry) -> None:
@@ -13,12 +14,12 @@ def reset_unit_moves(state: GameState, reg: Registry) -> None:
 
 
 def can_move_to(state: GameState, unit: Unit, nx: int, ny: int) -> bool:
-    if unit.moves_left <= 0:
-        return False
     if abs(nx - unit.x) + abs(ny - unit.y) != 1:
         return False
     tile = state.tile(nx, ny)
-    if tile is None or tile.terrain == Terrain.WATER:
+    if tile is None or not tile.terrain.passable:
+        return False
+    if unit.moves_left < tile.terrain.move_cost:
         return False
     # Same-owner stacking blocked; enemy-occupied tiles require attack() instead.
     blocker = state.unit_at(nx, ny)
@@ -30,8 +31,9 @@ def can_move_to(state: GameState, unit: Unit, nx: int, ny: int) -> bool:
 def move_unit(state: GameState, unit: Unit, nx: int, ny: int) -> bool:
     if not can_move_to(state, unit, nx, ny):
         return False
+    cost = state.tile(nx, ny).terrain.move_cost  # type: ignore[union-attr]
     unit.x, unit.y = nx, ny
-    unit.moves_left -= 1
+    unit.moves_left -= cost
     return True
 
 
@@ -40,7 +42,7 @@ def found_city(state: GameState, reg: Registry, unit: Unit, name: str) -> City |
     if ut is None or not ut.can_found_city:
         return None
     tile = state.tile(unit.x, unit.y)
-    if tile is None or tile.terrain != Terrain.GRASS:
+    if tile is None or tile.terrain not in CITY_FOUNDING_TERRAINS:
         return None
     if state.city_at(unit.x, unit.y) is not None:
         return None
@@ -73,7 +75,9 @@ def attack(state: GameState, reg: Registry, attacker: Unit, tx: int, ty: int) ->
             ))
         except Exception:
             bonus = 0
-    if at.attack + bonus >= dt.defense:
+    def_tile = state.tile(tx, ty)
+    terrain_def = def_tile.terrain.defense_bonus if def_tile else 0
+    if at.attack + bonus >= dt.defense + terrain_def:
         state.units.remove(target)
     else:
         attacker.hp -= 2
@@ -83,8 +87,13 @@ def attack(state: GameState, reg: Registry, attacker: Unit, tx: int, ty: int) ->
     return True
 
 
-def _city_yields(city: City, reg: Registry) -> tuple[int, int, int]:
-    base_food, base_prod, base_sci = 2, 1, 1
+def _city_yields(city: City, state: GameState, reg: Registry) -> tuple[int, int, int]:
+    tile = state.tile(city.x, city.y)
+    if tile is not None:
+        base_food, base_prod, base_sci = tile.terrain.food, tile.terrain.prod, tile.terrain.sci
+    else:
+        base_food, base_prod, base_sci = 1, 1, 0
+    base_sci += 1  # every city contributes 1 base science; buildings add more
     for b in city.buildings:
         bt = reg.building_types.get(b)
         if bt:
@@ -95,7 +104,7 @@ def _city_yields(city: City, reg: Registry) -> tuple[int, int, int]:
 
 
 def _apply_city_tick(state: GameState, reg: Registry, city: City) -> None:
-    food, prod, sci = _city_yields(city, reg)
+    food, prod, sci = _city_yields(city, state, reg)
     city.food_stock += max(0, food - city.population)
     if city.food_stock >= FOOD_PER_GROWTH:
         city.food_stock -= FOOD_PER_GROWTH
@@ -136,7 +145,7 @@ def _find_spawn_tile(state: GameState, city: City) -> tuple[int, int] | None:
     for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
         nx, ny = city.x + dx, city.y + dy
         tile = state.tile(nx, ny)
-        if tile is None or tile.terrain == Terrain.WATER:
+        if tile is None or not tile.terrain.passable:
             continue
         if state.unit_at(nx, ny) is None:
             return (nx, ny)
