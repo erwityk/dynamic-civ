@@ -16,7 +16,7 @@ def _new_game(seed: int = 1) -> tuple[GameState, Registry]:
     reg = Registry()
     register_builtins(reg)
     tiles = generate_map(20, 20, seed=seed)
-    state = GameState(width=20, height=20, tiles=tiles)
+    state = GameState(width=20, height=20, tiles=tiles, gold=100)
     state.units.append(Unit(id=state.new_id(), type_name="Settler", x=10, y=10))
     state.units.append(Unit(id=state.new_id(), type_name="Warrior", x=11, y=10))
     reset_unit_moves(state, reg)

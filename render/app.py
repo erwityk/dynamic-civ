@@ -7,7 +7,7 @@ import pygame
 from engine.registry import Registry
 from engine.state import City, GameState, Terrain, Unit
 from engine.ai import run_ai_turn
-from engine.turn import attack, end_turn, found_city, move_unit, reset_unit_moves
+from engine.turn import attack, end_turn, found_city, move_unit, purchase_build, reset_unit_moves
 from render.draw import GRID_ORIGIN, TILE, draw_city, draw_map, draw_top_bar, draw_unit, screen_to_tile, tile_to_screen
 from render.ui import Button, TextInput, Toasts
 
@@ -61,6 +61,8 @@ class App:
         )
         # Build-queue option buttons, rebuilt each frame based on registry.
         self.build_buttons: list[Button] = []
+        # Buy button for instant production completion; rebuilt each frame.
+        self.buy_btn: Optional[Button] = None
 
     # ---------- button callbacks ----------
 
@@ -103,6 +105,15 @@ class App:
         def fn() -> None:
             city.build_target = target
             self.toasts.add(f"{city.name} now building {target}")
+        return fn
+
+    def _on_buy(self, city: City) -> Callable[[], None]:
+        def fn() -> None:
+            target = city.build_target
+            if purchase_build(self.state, self.reg, city):
+                self.toasts.add(f"Purchased {target} for {city.name}")
+            else:
+                self.toasts.add("Not enough gold", color=(140, 40, 40))
         return fn
 
     # ---------- event handling ----------
@@ -173,6 +184,8 @@ class App:
             if self.research_input.handle(event):
                 continue
             if self.research_btn.handle(event):
+                continue
+            if self.buy_btn and self.buy_btn.handle(event):
                 continue
             for b in self.build_buttons:
                 if b.handle(event):
@@ -245,6 +258,20 @@ class App:
         y = self._draw_label(SIDEBAR_X, y, f"Pop {c.population}  Food {c.food_stock}  Prod {c.production_stock}")
         y = self._draw_label(SIDEBAR_X, y, f"Buildings: {', '.join(c.buildings) or 'none'}", color=(180, 180, 200), font=self.font_sm)
         y = self._draw_label(SIDEBAR_X, y, f"Building: {c.build_target or 'nothing'}")
+        self.buy_btn = None
+        if c.build_target:
+            ttype = self.reg.unit_types.get(c.build_target) or self.reg.building_types.get(c.build_target)
+            if ttype is not None:
+                remaining = max(0, ttype.cost - c.production_stock)
+                price = remaining * 3
+                self.buy_btn = Button(
+                    rect=pygame.Rect(SIDEBAR_X, y, SIDEBAR_W, 24),
+                    label=f"Buy ({price} gold)",
+                    on_click=self._on_buy(c),
+                )
+                self.buy_btn.enabled = self.state.gold >= price
+                self.buy_btn.draw(self.screen, self.font_sm)
+                y += 28
         y += 4
         y = self._draw_label(SIDEBAR_X, y, "Set production:", color=(200, 200, 220))
         self.build_buttons = []

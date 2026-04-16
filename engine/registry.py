@@ -12,6 +12,7 @@ STAT_BOUNDS = {
     "food": (-2, 5),
     "production": (-2, 5),
     "science": (-2, 5),
+    "gold": (0, 5),
 }
 
 # Valid shape tokens for the renderer.
@@ -34,6 +35,7 @@ class UnitType:
     color: tuple[int, int, int]
     description: str
     can_found_city: bool = False
+    maintenance: int = 0  # gold cost per turn
     on_attack: Optional[Callable] = None  # hook signature: (attacker_stats, defender_stats) -> int bonus
 
 
@@ -44,6 +46,9 @@ class BuildingType:
     food: int = 0
     production: int = 0
     science: int = 0
+    gold: int = 0
+    gold_multiplier: float = 1.0  # multiplies total city gold (e.g. Mint = 2.0)
+    growth_food_reduction: float = 0.0  # fraction by which to reduce FOOD_PER_GROWTH (e.g. Aqueduct = 0.2)
     description: str = ""
 
 
@@ -84,10 +89,26 @@ def register_builtins(reg: Registry) -> None:
         attack=2, defense=2, move=1, cost=20,
         shape="triangle", color=(200, 60, 60),
         description="Basic melee unit.",
+        maintenance=1,
     ))
     reg.add_building(BuildingType(
         name="Granary",
         cost=40, food=1, production=0, science=0,
         description="Boosts city food production.",
+    ))
+    reg.add_building(BuildingType(
+        name="Market",
+        cost=60, gold=2,
+        description="Boosts city gold production.",
+    ))
+    reg.add_building(BuildingType(
+        name="Mint",
+        cost=80, gold_multiplier=2.0,
+        description="Doubles city gold output.",
+    ))
+    reg.add_building(BuildingType(
+        name="Aqueduct",
+        cost=70, growth_food_reduction=0.2,
+        description="Reduces food needed for city growth.",
     ))
     reg.mark_builtins()

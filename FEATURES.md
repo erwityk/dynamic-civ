@@ -56,7 +56,7 @@ Keep AI deterministic (seeded RNG per turn) so games are reproducible.
 
 ## 3. Currency & Economy
 
-**Status:** Not started. Cities produce food/production/science but there is no gold/currency.
+**Status: Implemented (§3a–3c).** Gold added to `GameState`. Cities produce 1 base gold/turn plus building bonuses. Unit maintenance deducted at end of turn; negative gold randomly disbands a unit. Market (+2 gold/turn), Mint (×2 gold multiplier), Aqueduct (−20% food-for-growth) registered as builtins. Buy button in city panel allows instant production completion for `remaining × 3` gold.
 
 ### 3a. Gold
 - Add `gold: int` to `GameState` and `gold_per_turn: int` yield to cities (base 1, boosted by buildings like Market).
@@ -306,7 +306,7 @@ One-per-game buildings that can be constructed by any civ; once built, all other
 | 3 | Terrain types (§5a–5b) | **Done** |
 | 4 | Technology tree (§9a) — structure to the mid/late game | — |
 | 5 | Victory conditions (§10) — gives the game an end | — |
-| 6 | Currency & economy (§3) — adds decision-making to city management | — |
+| 6 | Currency & economy (§3) — adds decision-making to city management | **Done** |
 | 7 | Fog of war (§13) — changes exploration incentive | — |
 | 8 | Unit progression (§11) — rewards keeping units alive | — |
 | 9 | Workers & improvements (§7) — tile optimization layer | — |

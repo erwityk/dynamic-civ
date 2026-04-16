@@ -90,6 +90,6 @@ def draw_unit(surf: pygame.Surface, unit: Unit, reg: Registry, selected: bool, f
 
 def draw_top_bar(surf: pygame.Surface, state: GameState, font: pygame.font.Font) -> None:
     pygame.draw.rect(surf, (25, 25, 35), (0, 0, surf.get_width(), 32))
-    text = f"Turn {state.turn}    Science: {state.science}    Cities: {len(state.cities)}    Units: {len(state.units)}"
+    text = f"Turn {state.turn}    Science: {state.science}    Gold: {state.gold}    Cities: {len(state.cities)}    Units: {len(state.units)}"
     label = font.render(text, True, (240, 240, 240))
     surf.blit(label, (12, 8))

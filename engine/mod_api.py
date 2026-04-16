@@ -76,6 +76,7 @@ class ModAPI:
         food: int = 0,
         production: int = 0,
         science: int = 0,
+        gold: int = 0,
         description: str = "",
     ) -> None:
         name = str(name).strip()
@@ -89,6 +90,7 @@ class ModAPI:
             food=_clamp("food", food),
             production=_clamp("production", production),
             science=_clamp("science", science),
+            gold=_clamp("gold", gold),
             description=str(description)[:400],
         )
         self._registry.add_building(bt)

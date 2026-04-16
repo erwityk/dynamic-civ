@@ -87,29 +87,39 @@ def attack(state: GameState, reg: Registry, attacker: Unit, tx: int, ty: int) ->
     return True
 
 
-def _city_yields(city: City, state: GameState, reg: Registry) -> tuple[int, int, int]:
+def _city_yields(city: City, state: GameState, reg: Registry) -> tuple[int, int, int, int]:
     tile = state.tile(city.x, city.y)
     if tile is not None:
         base_food, base_prod, base_sci = tile.terrain.food, tile.terrain.prod, tile.terrain.sci
     else:
         base_food, base_prod, base_sci = 1, 1, 0
     base_sci += 1  # every city contributes 1 base science; buildings add more
+    base_gold = 1  # every city produces 1 base gold
+    gold_multiplier = 1.0
     for b in city.buildings:
         bt = reg.building_types.get(b)
         if bt:
             base_food += bt.food
             base_prod += bt.production
             base_sci += bt.science
-    return base_food, base_prod, base_sci
+            base_gold += bt.gold
+            gold_multiplier *= bt.gold_multiplier
+    return base_food, base_prod, base_sci, int(base_gold * gold_multiplier)
 
 
 def _apply_city_tick(state: GameState, reg: Registry, city: City) -> None:
-    food, prod, sci = _city_yields(city, state, reg)
+    food, prod, sci, gold = _city_yields(city, state, reg)
     city.food_stock += max(0, food - city.population)
-    if city.food_stock >= FOOD_PER_GROWTH:
-        city.food_stock -= FOOD_PER_GROWTH
+    growth_threshold = FOOD_PER_GROWTH
+    for b in city.buildings:
+        bt = reg.building_types.get(b)
+        if bt and bt.growth_food_reduction:
+            growth_threshold = max(1, int(growth_threshold * (1 - bt.growth_food_reduction)))
+    if city.food_stock >= growth_threshold:
+        city.food_stock -= growth_threshold
         city.population += 1
     state.science += sci
+    state.gold += gold
 
     if not city.build_target:
         return
@@ -153,6 +163,7 @@ def _find_spawn_tile(state: GameState, city: City) -> tuple[int, int] | None:
 
 
 def end_turn(state: GameState, reg: Registry) -> None:
+    import random as _random
     # Tally science gained this turn so research advances by the same amount cities produced.
     sci_before = state.science
     for city in state.cities:
@@ -166,5 +177,45 @@ def end_turn(state: GameState, reg: Registry) -> None:
             r.status = "generating"
             r.progress = r.cost
 
+    # Deduct maintenance: 1 gold per city + each unit's maintenance cost.
+    maintenance = len(state.cities)
+    for u in state.units:
+        ut = reg.unit_types.get(u.type_name)
+        if ut:
+            maintenance += ut.maintenance
+    state.gold -= maintenance
+    if state.gold < 0 and state.units:
+        disbanded = _random.choice(state.units)
+        state.units.remove(disbanded)
+
     state.turn += 1
     reset_unit_moves(state, reg)
+
+
+def purchase_build(state: GameState, reg: Registry, city: City) -> bool:
+    """Instantly complete city's current build target by spending gold (cost = remaining × 3)."""
+    if not city.build_target:
+        return False
+    unit_type = reg.unit_types.get(city.build_target)
+    building_type = reg.building_types.get(city.build_target)
+    if unit_type is None and building_type is None:
+        return False
+    cost = unit_type.cost if unit_type else building_type.cost  # type: ignore[union-attr]
+    remaining = max(0, cost - city.production_stock)
+    price = remaining * 3
+    if state.gold < price:
+        return False
+    state.gold -= price
+    city.production_stock = 0
+    if unit_type:
+        spawn = _find_spawn_tile(state, city)
+        if spawn is not None:
+            state.units.append(Unit(
+                id=state.new_id(), type_name=city.build_target,
+                x=spawn[0], y=spawn[1], moves_left=0,
+                owner=city.owner,
+            ))
+    elif building_type:
+        if city.build_target not in city.buildings:
+            city.buildings.append(city.build_target)
+    return True

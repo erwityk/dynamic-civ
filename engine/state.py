@@ -91,6 +91,7 @@ class GameState:
     civs: list[Civilization] = field(default_factory=list)
     turn: int = 1
     science: int = 0
+    gold: int = 0
     research: ResearchState = field(default_factory=ResearchState)
     _next_id: int = 1
 
