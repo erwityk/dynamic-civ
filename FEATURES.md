@@ -1,6 +1,6 @@
 # Feature Backlog
 
-Tracks unimplemented and partially-implemented features. Current state: single-player sandbox with a 20×20 grass/water map, two starting units, city founding, city yields (food/production/science), a production queue, science accumulation, and AI-generated mod loading via the `claude` CLI. Combat code exists in `engine/turn.py` but is not wired to the UI, and there are no opposing civilizations, terrain variety, victory conditions, or economy.
+Tracks unimplemented and partially-implemented features. Current state: single-player sandbox with a 20×20 procedural terrain map, combat and enemy AI, city yields (food/production/science/gold), a production queue, a 7-tech structured tech tree, global happiness, population cap, economy (gold/maintenance/purchasing), and AI-generated mod loading via the `claude` CLI.
 
 ---
 
@@ -132,7 +132,9 @@ Gems, Silk, Spices, etc. Harvested by Worker improvement; each unique luxury in 
 
 ## 8. Happiness & Population Cap
 
-**Status:** Not started. Cities grow unbounded.
+**Status: Implemented (§8a–§8b).** Global `happiness` added to `GameState`, recomputed each `end_turn`. Each city beyond the first costs 1 happiness; Temple (+2) and Colosseum (+3) registered as builtins. If `happiness < 0`, city growth is blocked and units get −1 effective attack. Population hard-capped at `2 + worked tiles`; expands to full effect once §7 Workers are built (currently always 2). Top bar shows happiness in red when negative; city panel shows `Pop X/Y`.
+
+Not yet implemented: happiness from luxury resources (§6b), happiness cost for units at war (§2).
 
 ### 8a. Happiness
 - Global `happiness: int` on `GameState`. Starts at 0.
@@ -148,7 +150,7 @@ Gems, Silk, Spices, etc. Harvested by Worker improvement; each unique luxury in 
 
 ## 9. Technology Tree
 
-**Status:** The free-form Claude-powered research exists but there is no structured tech tree. Science accumulates but gates nothing.
+**Status: Implemented (§9a–§9b).** Seven-tech DAG defined in `engine/tech.py` (Agriculture, Mining, Writing, Bronze Working, Mathematics, Currency, Horseback Riding). `ResearchState` extended with `researched_techs`, `current_tech`, `tech_progress`, `tech_just_completed`. Tech advances by `sci_gained` each turn; completion unlocks buildings and units via `requires_tech` filter in `registry.buildable_options()`. New builtins: Library, Workshop, Spearman, Cavalry, Catapult. Existing builtins Granary, Market, and Aqueduct now gated behind their respective techs. Sidebar panel split into Technology (tech picker / progress / completion banner with Invent/Dismiss) and Invention (free-form Claude pipeline) sections.
 
 ### 9a. Structured Techs
 Separate from the free-form research. A predefined DAG of technologies unlocks buildings and units:
@@ -304,10 +306,11 @@ One-per-game buildings that can be constructed by any civ; once built, all other
 | 1 | Combat UI (§1a) | **Done** |
 | 2 | Enemy AI basics (§2a–2b) | **Done** |
 | 3 | Terrain types (§5a–5b) | **Done** |
-| 4 | Technology tree (§9a) — structure to the mid/late game | — |
-| 5 | Victory conditions (§10) — gives the game an end | — |
-| 6 | Currency & economy (§3) — adds decision-making to city management | **Done** |
-| 7 | Fog of war (§13) — changes exploration incentive | — |
-| 8 | Unit progression (§11) — rewards keeping units alive | — |
-| 9 | Workers & improvements (§7) — tile optimization layer | — |
-| 10 | Save/Load (§14) — quality of life | — |
+| 4 | Technology tree (§9a) | **Done** |
+| 5 | Currency & economy (§3) | **Done** |
+| 6 | Happiness & population cap (§8) | **Done** |
+| 7 | Victory conditions (§10) — gives the game an end | — |
+| 8 | Fog of war (§13) — changes exploration incentive | — |
+| 9 | Unit progression (§11) — rewards keeping units alive | — |
+| 10 | Workers & improvements (§7) — tile optimization layer | — |
+| 11 | Save/Load (§14) — quality of life | — |
