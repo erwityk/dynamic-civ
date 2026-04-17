@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from .registry import Registry
-from .state import City, GameState, Terrain, Unit
+from .state import City, GameState, Terrain, Unit, VictoryResult
 from .tech import TECHS
 
 FOOD_PER_GROWTH = 5
@@ -36,6 +38,8 @@ def reset_unit_moves(state: GameState, reg: Registry) -> None:
     for u in state.units:
         ut = reg.unit_types.get(u.type_name)
         u.moves_left = ut.move if ut else 0
+        u.has_moved = False
+        u.attacks_this_turn = 0
 
 
 def can_move_to(state: GameState, unit: Unit, nx: int, ny: int) -> bool:
@@ -59,6 +63,7 @@ def move_unit(state: GameState, unit: Unit, nx: int, ny: int) -> bool:
     cost = state.tile(nx, ny).terrain.move_cost  # type: ignore[union-attr]
     unit.x, unit.y = nx, ny
     unit.moves_left -= cost
+    unit.has_moved = True
     return True
 
 
@@ -72,6 +77,8 @@ def found_city(state: GameState, reg: Registry, unit: Unit, name: str) -> City |
     if state.city_at(unit.x, unit.y) is not None:
         return None
     city = City(id=state.new_id(), name=name, x=unit.x, y=unit.y, owner=unit.owner)
+    if not any(c.owner == unit.owner for c in state.cities):
+        city.is_capital = True
     state.cities.append(city)
     state.units.remove(unit)
     return city
@@ -80,7 +87,10 @@ def found_city(state: GameState, reg: Registry, unit: Unit, name: str) -> City |
 def attack(state: GameState, reg: Registry, attacker: Unit, tx: int, ty: int) -> bool:
     if abs(tx - attacker.x) + abs(ty - attacker.y) != 1:
         return False
-    if attacker.moves_left <= 0:
+    max_attacks = 2 if "Blitz" in attacker.promotions else 1
+    if attacker.attacks_this_turn >= max_attacks:
+        return False
+    if attacker.moves_left <= 0 and attacker.attacks_this_turn == 0:
         return False
     target = state.unit_at(tx, ty)
     if target is None:
@@ -102,15 +112,34 @@ def attack(state: GameState, reg: Registry, attacker: Unit, tx: int, ty: int) ->
             bonus = 0
     if state.happiness < 0:
         bonus -= 1  # unhappy empire: -1 effective attack
+    if "Drill I" in attacker.promotions:
+        bonus += 1
     def_tile = state.tile(tx, ty)
     terrain_def = def_tile.terrain.defense_bonus if def_tile else 0
+    if state.city_at(tx, ty) is not None:
+        terrain_def += 2  # city tile defense bonus
+    if "Fortify I" in target.promotions and not target.has_moved:
+        terrain_def += 1
+    attacker.has_moved = True
+    attacker.attacks_this_turn += 1
+    attacker.moves_left = max(0, attacker.moves_left - 1)
     if at.attack + bonus >= dt.defense + terrain_def:
         state.units.remove(target)
+        attacker.xp += 2
+        if attacker.xp >= 10 and not attacker.promotion_pending:
+            attacker.promotion_pending = True
+        # Capture city if the defender was its sole protector
+        city = state.city_at(tx, ty)
+        if city is not None and city.owner != attacker.owner:
+            city.owner = attacker.owner
     else:
         attacker.hp -= 2
         if attacker.hp <= 0:
             state.units.remove(attacker)
-    attacker.moves_left -= 1
+        else:
+            attacker.xp += 1
+            if attacker.xp >= 10 and not attacker.promotion_pending:
+                attacker.promotion_pending = True
     return True
 
 
@@ -193,6 +222,51 @@ def _find_spawn_tile(state: GameState, city: City) -> tuple[int, int] | None:
     return None
 
 
+def _compute_score(state: GameState) -> int:
+    player_cities = [c for c in state.cities if c.owner == "player"]
+    player_units = [u for u in state.units if u.owner == "player"]
+    return sum(c.population for c in player_cities) * 3 + len(player_units) + state.science + state.gold
+
+
+def check_victory(state: GameState, reg: Registry) -> Optional[VictoryResult]:
+    if state.game_over is not None:
+        return state.game_over
+    player_cities = [c for c in state.cities if c.owner == "player"]
+    player_units = [u for u in state.units if u.owner == "player"]
+    # Defeat: no cities and no unit that can found a city
+    can_refound = any(
+        reg.unit_types.get(u.type_name) and reg.unit_types[u.type_name].can_found_city
+        for u in player_units
+    )
+    if not player_cities and not can_refound:
+        result = VictoryResult("defeat", "ai", _compute_score(state), state.turn)
+        state.game_over = result
+        return result
+    # Domination: no enemy capitals remain
+    enemy_capitals = [c for c in state.cities if c.is_capital and c.owner != "player"]
+    if not enemy_capitals and any(c.is_capital for c in state.cities):
+        result = VictoryResult("domination", "player", _compute_score(state), state.turn)
+        state.game_over = result
+        return result
+    # Time victory at turn 300
+    if state.turn >= 300:
+        result = VictoryResult("time", "player", _compute_score(state), state.turn)
+        state.game_over = result
+        return result
+    return None
+
+
+def _apply_healing(state: GameState, reg: Registry) -> None:
+    for u in state.units:
+        if u.has_moved:
+            continue
+        ut = reg.unit_types.get(u.type_name)
+        max_hp = ut.max_hp if ut else 10
+        city = state.city_at(u.x, u.y)
+        heal = 4 if (city is not None and city.owner == u.owner) else 2
+        u.hp = min(max_hp, u.hp + heal)
+
+
 def end_turn(state: GameState, reg: Registry) -> None:
     import random as _random
     _compute_happiness(state, reg)
@@ -232,7 +306,9 @@ def end_turn(state: GameState, reg: Registry) -> None:
         state.units.remove(disbanded)
 
     state.turn += 1
+    _apply_healing(state, reg)
     reset_unit_moves(state, reg)
+    check_victory(state, reg)
 
 
 def purchase_build(state: GameState, reg: Registry, city: City) -> bool:

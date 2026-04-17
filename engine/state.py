@@ -47,6 +47,11 @@ class Unit:
     hp: int = 10
     moves_left: int = 0
     owner: str = "player"  # matches Civilization.name or "player"
+    xp: int = 0
+    promotions: list[str] = field(default_factory=list)
+    has_moved: bool = False
+    attacks_this_turn: int = 0
+    promotion_pending: bool = False
 
 
 @dataclass
@@ -61,6 +66,7 @@ class City:
     build_target: Optional[str] = None  # unit or building type name
     buildings: list[str] = field(default_factory=list)
     owner: str = "player"
+    is_capital: bool = False
 
 
 @dataclass
@@ -69,6 +75,14 @@ class Tile:
     y: int
     terrain: Terrain
     improvement: Optional[str] = None  # set by Workers (§7)
+
+
+@dataclass
+class VictoryResult:
+    victory_type: str  # "domination" | "time" | "defeat"
+    winner: str
+    score: int
+    turn: int
 
 
 @dataclass
@@ -100,6 +114,7 @@ class GameState:
     gold: int = 0
     happiness: int = 0  # §8a: recomputed each turn
     research: ResearchState = field(default_factory=ResearchState)
+    game_over: Optional[VictoryResult] = None
     _next_id: int = 1
 
     def new_id(self) -> int:

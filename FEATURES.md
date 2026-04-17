@@ -177,7 +177,7 @@ Keep as a separate "Invention" mechanic. After a structured tech is completed th
 
 ## 10. Victory Conditions
 
-**Status:** Not started. Game runs indefinitely.
+**Status: Implemented (domination + time + defeat).** Domination: player captures all AI original capitals. Time: turn 300, score computed as `cities×pop×3 + units + science + gold`. Defeat: no player cities and no Settler. Full-screen overlay with victory type, score, turn, and New Game button. Science/Cultural victories not yet implemented (require Space Flight tech and culture tracking).
 
 | Victory Type | Condition |
 |---|---|
@@ -193,7 +193,7 @@ Keep as a separate "Invention" mechanic. After a structured tech is completed th
 
 ## 11. Unit Progression
 
-**Status:** Not started. Units have HP but no XP or promotions.
+**Status: Implemented (§11a–§11 promotions).** `xp` on Unit: +2 per kill, +1 per combat survived; at 10 XP a promotion choice appears in the sidebar. Three promotions: Drill I (+1 atk), Fortify I (+1 def when stationary), Blitz (attack twice/turn). Healing: idle units heal 2 HP/turn; units in own city heal 4 HP/turn, capped at `UnitType.max_hp`. Visuals: HP bar below unit shape; star glyph on promoted units.
 
 - Add `xp: int` to `Unit`. Each kill grants `+2 XP`; surviving combat (taking damage) grants `+1 XP`.
 - At `10 XP`: choose one promotion from a small list relevant to the unit type:
@@ -309,8 +309,8 @@ One-per-game buildings that can be constructed by any civ; once built, all other
 | 4 | Technology tree (§9a) | **Done** |
 | 5 | Currency & economy (§3) | **Done** |
 | 6 | Happiness & population cap (§8) | **Done** |
-| 7 | Victory conditions (§10) — gives the game an end | — |
-| 8 | Fog of war (§13) — changes exploration incentive | — |
-| 9 | Unit progression (§11) — rewards keeping units alive | — |
+| 7 | Victory conditions (§10) — gives the game an end | **Done** |
+| 8 | Unit progression (§11) — rewards keeping units alive | **Done** |
+| 9 | Fog of war (§13) — changes exploration incentive | — |
 | 10 | Workers & improvements (§7) — tile optimization layer | — |
 | 11 | Save/Load (§14) — quality of life | — |

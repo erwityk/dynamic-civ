@@ -14,6 +14,7 @@ STAT_BOUNDS = {
     "science": (-2, 5),
     "gold": (0, 5),
     "happiness": (0, 5),
+    "max_hp": (1, 30),
 }
 
 # Valid shape tokens for the renderer.
@@ -37,6 +38,7 @@ class UnitType:
     description: str
     can_found_city: bool = False
     maintenance: int = 0  # gold cost per turn
+    max_hp: int = 10
     on_attack: Optional[Callable] = None  # hook signature: (attacker_stats, defender_stats) -> int bonus
     requires_tech: Optional[str] = None  # tech name that must be researched to build/train
 

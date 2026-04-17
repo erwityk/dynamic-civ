@@ -64,7 +64,8 @@ def main() -> int:
     except ImportError:
         print("[dynamic-civ] research runner not yet implemented; research will block at 'generating'.")
 
-    app = App(state=state, reg=reg, research_trigger=research_trigger, research_poll=research_poll)
+    app = App(state=state, reg=reg, research_trigger=research_trigger, research_poll=research_poll,
+              reset_callback=lambda: new_game(seed=args.seed))
     app.run()
     return 0
 

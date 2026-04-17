@@ -86,6 +86,17 @@ def draw_unit(surf: pygame.Surface, unit: Unit, reg: Registry, selected: bool, f
         pygame.draw.rect(surf, (255, 230, 0), (sx, sy, TILE, TILE), width=2)
     elif unit.owner != "player":
         pygame.draw.rect(surf, (220, 50, 50), (sx, sy, TILE, TILE), width=2)
+    # HP bar
+    max_hp = ut.max_hp if ut else 10
+    bar_w = TILE - 8
+    bar_x, bar_y = sx + 4, sy + TILE - 5
+    pygame.draw.rect(surf, (160, 40, 40), (bar_x, bar_y, bar_w, 4))
+    filled = int(bar_w * max(0, unit.hp) / max_hp)
+    pygame.draw.rect(surf, (60, 200, 60), (bar_x, bar_y, filled, 4))
+    # Star glyph for promoted units
+    if unit.promotions:
+        star = font.render("*", True, (255, 220, 60))
+        surf.blit(star, (sx + TILE - star.get_width() - 2, sy + 1))
 
 
 def draw_top_bar(surf: pygame.Surface, state: GameState, font: pygame.font.Font) -> None:

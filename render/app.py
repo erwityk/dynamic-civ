@@ -5,9 +5,9 @@ from typing import Callable, Optional
 import pygame
 
 from engine.registry import Registry
-from engine.state import City, GameState, Terrain, Unit
+from engine.state import City, GameState, Terrain, Unit, VictoryResult
 from engine.ai import run_ai_turn
-from engine.turn import attack, end_turn, found_city, move_unit, population_cap, purchase_build, reset_unit_moves
+from engine.turn import attack, check_victory, end_turn, found_city, move_unit, population_cap, purchase_build, reset_unit_moves
 from engine.tech import TECHS, available_techs
 from render.draw import GRID_ORIGIN, TILE, draw_city, draw_map, draw_top_bar, draw_unit, screen_to_tile, tile_to_screen
 from render.ui import Button, TextInput, Toasts
@@ -23,7 +23,8 @@ ResearchTrigger = Callable[[str], None]  # invoked with the player's research pr
 
 class App:
     def __init__(self, state: GameState, reg: Registry, research_trigger: Optional[ResearchTrigger] = None,
-                 research_poll: Optional[Callable[[], None]] = None):
+                 research_poll: Optional[Callable[[], None]] = None,
+                 reset_callback: Optional[Callable[[], tuple[GameState, Registry]]] = None):
         pygame.init()
         pygame.display.set_caption("Dynamic Civ")
         self.screen = pygame.display.set_mode((WINDOW_W, WINDOW_H))
@@ -36,11 +37,14 @@ class App:
         self.reg = reg
         self.research_trigger = research_trigger
         self.research_poll = research_poll
+        self.reset_callback = reset_callback
 
         self.selected_unit: Optional[Unit] = None
         self.selected_city: Optional[City] = None
         self.toasts = Toasts()
         self._city_counter = 0
+        self._pending_promotion_unit: Optional[Unit] = None
+        self.promotion_buttons: list[Button] = []
 
         self.end_turn_btn = Button(
             rect=pygame.Rect(SIDEBAR_X, 40, SIDEBAR_W, 36),
@@ -60,6 +64,11 @@ class App:
             rect=pygame.Rect(SIDEBAR_X, 0, SIDEBAR_W, 28),
             label="Start Research",
             on_click=self._on_start_research,
+        )
+        self.new_game_btn = Button(
+            rect=pygame.Rect(WINDOW_W // 2 - 100, WINDOW_H // 2 + 60, 200, 40),
+            label="New Game",
+            on_click=self._on_new_game,
         )
         # Build-queue option buttons, rebuilt each frame based on registry.
         self.build_buttons: list[Button] = []
@@ -84,6 +93,7 @@ class App:
     def _on_end_turn(self) -> None:
         end_turn(self.state, self.reg)
         run_ai_turn(self.state, self.reg)
+        check_victory(self.state, self.reg)  # catches defeat after AI kills last city/settler
         self.selected_unit = None
         self.toasts.add(f"Turn {self.state.turn}")
 
@@ -148,6 +158,25 @@ class App:
     def _on_dismiss_tech(self) -> None:
         self.state.research.tech_just_completed = None
         self.toasts.add("Discovery noted.")
+
+    def _on_new_game(self) -> None:
+        if self.reset_callback:
+            self.state, self.reg = self.reset_callback()
+            self.selected_unit = None
+            self.selected_city = None
+            self._pending_promotion_unit = None
+            self.toasts = Toasts()
+            self._city_counter = 0
+
+    def _on_choose_promotion(self, unit: Unit, promo: str) -> Callable[[], None]:
+        def fn() -> None:
+            unit.promotions.append(promo)
+            unit.promotion_pending = False
+            unit.xp = 0
+            self._pending_promotion_unit = None
+            self.promotion_buttons = []
+            self.toasts.add(f"{unit.type_name} gained {promo}!")
+        return fn
 
     def _set_build(self, city: City, target: str) -> Callable[[], None]:
         def fn() -> None:
@@ -219,11 +248,18 @@ class App:
         else:
             dmg = attacker_hp_before - attacker.hp
             self.toasts.add(f"{atk_name} attacks {def_name} — takes {dmg} damage (HP {attacker.hp})", color=(200, 160, 60))
+        if not attacker_dead and attacker.promotion_pending:
+            self._pending_promotion_unit = attacker
+            self.toasts.add(f"{atk_name} earned a promotion!", color=(255, 220, 60))
 
     def _poll_events(self) -> bool:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
+            # When game is over, only the New Game button is active.
+            if self.state.game_over is not None:
+                self.new_game_btn.handle(event)
+                continue
             if self.end_turn_btn.handle(event):
                 continue
             # Sidebar buttons only active when their panel is showing.
@@ -243,6 +279,9 @@ class App:
             if self.buy_btn and self.buy_btn.handle(event):
                 continue
             for b in self.build_buttons:
+                if b.handle(event):
+                    break
+            for b in self.promotion_buttons:
                 if b.handle(event):
                     break
             if event.type == pygame.MOUSEBUTTONDOWN and event.pos[0] < SIDEBAR_X - 8:
@@ -298,7 +337,25 @@ class App:
         if ut:
             y = self._draw_label(SIDEBAR_X, y, f"Atk {ut.attack}  Def {ut.defense}  Move {ut.move}")
             y = self._draw_label(SIDEBAR_X, y, f"HP {u.hp}  Moves left {u.moves_left}")
+            xp_str = f"XP {u.xp}/10"
+            if u.promotions:
+                xp_str += "  [" + ", ".join(u.promotions) + "]"
+            y = self._draw_label(SIDEBAR_X, y, xp_str, color=(200, 200, 140), font=self.font_sm)
             y = self._draw_label(SIDEBAR_X, y, _wrap(ut.description, 42), color=(180, 180, 200), font=self.font_sm)
+        # Promotion choice UI
+        if self._pending_promotion_unit is u:
+            y = self._draw_label(SIDEBAR_X, y, "Choose promotion:", color=(255, 220, 60))
+            available = [p for p in ("Drill I", "Fortify I", "Blitz") if p not in u.promotions]
+            self.promotion_buttons = []
+            for promo in available:
+                btn = Button(
+                    rect=pygame.Rect(SIDEBAR_X, y, SIDEBAR_W, 26),
+                    label=promo,
+                    on_click=self._on_choose_promotion(u, promo),
+                )
+                btn.draw(self.screen, self.font)
+                self.promotion_buttons.append(btn)
+                y += 28
         if self._settler_selected():
             self.found_btn.rect.topleft = (SIDEBAR_X, y + 4)
             self.found_btn.draw(self.screen, self.font)
@@ -458,6 +515,40 @@ class App:
         self.research_btn.on_click = self._on_start_research
         self.research_input.value = ""
 
+    def _draw_game_over_screen(self) -> None:
+        result = self.state.game_over
+        if result is None:
+            return
+        overlay = pygame.Surface((WINDOW_W, WINDOW_H))
+        overlay.set_alpha(210)
+        overlay.fill((10, 10, 20))
+        self.screen.blit(overlay, (0, 0))
+        cx = WINDOW_W // 2
+        cy = WINDOW_H // 2 - 80
+        if result.victory_type == "defeat":
+            title = "DEFEAT"
+            title_color = (220, 60, 60)
+            sub = "Your civilization has fallen."
+        elif result.victory_type == "domination":
+            title = "VICTORY"
+            title_color = (255, 220, 60)
+            sub = "Domination! All enemy capitals captured."
+        else:
+            title = "VICTORY"
+            title_color = (120, 220, 255)
+            sub = f"Time's up! Final score wins."
+        font_title = pygame.font.SysFont("consolas", 48, bold=True)
+        t = font_title.render(title, True, title_color)
+        self.screen.blit(t, t.get_rect(center=(cx, cy)))
+        cy += 60
+        s = self.font_big.render(sub, True, (230, 230, 230))
+        self.screen.blit(s, s.get_rect(center=(cx, cy)))
+        cy += 30
+        score_txt = self.font_big.render(f"Score: {result.score}    Turn: {result.turn}", True, (200, 200, 200))
+        self.screen.blit(score_txt, score_txt.get_rect(center=(cx, cy)))
+        self.new_game_btn.rect.center = (cx, cy + 60)
+        self.new_game_btn.draw(self.screen, self.font_big)
+
     def _draw_progress(self, x: int, y: int, current: int, total: int) -> None:
         w = SIDEBAR_W
         h = 10
@@ -476,6 +567,8 @@ class App:
             draw_unit(self.screen, unit, self.reg, unit is self.selected_unit, self.font_sm)
         self._draw_sidebar()
         self.toasts.draw(self.screen, self.font_sm)
+        if self.state.game_over is not None:
+            self._draw_game_over_screen()
 
     # ---------- run loop ----------
 
