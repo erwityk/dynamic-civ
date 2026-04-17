@@ -68,6 +68,7 @@ class Tile:
     x: int
     y: int
     terrain: Terrain
+    improvement: Optional[str] = None  # set by Workers (§7)
 
 
 @dataclass
@@ -79,6 +80,11 @@ class ResearchState:
     error: Optional[str] = None
     last_result_name: Optional[str] = None  # name of the unit/building just created
     log_path: Optional[str] = None  # path to the most recent runner log
+    # Structured tech-tree fields (§9)
+    researched_techs: set[str] = field(default_factory=set)
+    current_tech: Optional[str] = None      # tech currently being accumulated
+    tech_progress: int = 0                  # beakers toward current_tech
+    tech_just_completed: Optional[str] = None  # set on completion; cleared by UI
 
 
 @dataclass
@@ -92,6 +98,7 @@ class GameState:
     turn: int = 1
     science: int = 0
     gold: int = 0
+    happiness: int = 0  # §8a: recomputed each turn
     research: ResearchState = field(default_factory=ResearchState)
     _next_id: int = 1
 

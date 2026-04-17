@@ -1,6 +1,7 @@
 from engine.map import generate_map
 from engine.registry import Registry, register_builtins
 from engine.state import City, GameState, Terrain, Tile, Unit
+from engine.tech import available_techs
 from engine.turn import (
     CITY_FOUNDING_TERRAINS,
     attack,
@@ -8,6 +9,7 @@ from engine.turn import (
     end_turn,
     found_city,
     move_unit,
+    population_cap,
     reset_unit_moves,
 )
 
@@ -136,3 +138,121 @@ def test_map_has_all_terrain_types():
     for dx in range(-1, 2):
         for dy in range(-1, 2):
             assert tiles[cx + dx][cy + dy].terrain in CITY_FOUNDING_TERRAINS
+
+
+# --- §8 Happiness & Population Cap tests ---
+
+def test_happiness_single_city():
+    state, reg = _new_game()
+    settler = state.units[0]
+    found_city(state, reg, settler, "Rome")
+    end_turn(state, reg)
+    assert state.happiness == 0  # first city has no penalty
+
+
+def test_happiness_with_multiple_cities():
+    state, reg = _new_game()
+    settler = state.units[0]
+    found_city(state, reg, settler, "Rome")
+    second = City(id=state.new_id(), name="Athens", x=5, y=5, owner="player")
+    state.cities.append(second)
+    end_turn(state, reg)
+    assert state.happiness == -1  # 2 cities → -1
+
+
+def test_colosseum_raises_happiness():
+    state, reg = _new_game()
+    settler = state.units[0]
+    city = found_city(state, reg, settler, "Rome")
+    second = City(id=state.new_id(), name="Athens", x=5, y=5, owner="player")
+    state.cities.append(second)
+    city.buildings.append("Colosseum")
+    end_turn(state, reg)
+    # -1 for second city + 3 for Colosseum = +2
+    assert state.happiness == 2
+
+
+def test_population_cap_without_improvements():
+    state, reg = _new_game()
+    settler = state.units[0]
+    city = found_city(state, reg, settler, "Rome")
+    city.food_stock = 1000  # force-feed surplus
+    for _ in range(30):
+        end_turn(state, reg)
+    assert city.population <= 2  # cap = 2 + 0 worked tiles
+
+
+def test_happiness_blocks_growth():
+    state, reg = _new_game()
+    settler = state.units[0]
+    city = found_city(state, reg, settler, "Rome")
+    second = City(id=state.new_id(), name="Athens", x=5, y=5, owner="player")
+    state.cities.append(second)
+    city.food_stock = 1000
+    for _ in range(10):
+        end_turn(state, reg)
+    # happiness is -1 (two cities, no happiness buildings) → growth blocked
+    assert city.population == 1
+
+
+# --- §9 Technology Tree tests ---
+
+def test_granary_not_buildable_without_agriculture():
+    reg = Registry()
+    register_builtins(reg)
+    opts = reg.buildable_options(set())
+    assert "Granary" not in opts
+    assert "Warrior" in opts   # no tech required
+
+
+def test_granary_buildable_with_agriculture():
+    reg = Registry()
+    register_builtins(reg)
+    opts = reg.buildable_options({"Agriculture"})
+    assert "Granary" in opts
+
+
+def test_tech_research_advances_and_completes():
+    state, reg = _new_game()
+    settler = state.units[0]
+    found_city(state, reg, settler, "Rome")
+    state.research.current_tech = "Agriculture"
+    # Agriculture costs 20; city produces ~1 sci/turn → run 25 turns to be safe
+    for _ in range(25):
+        end_turn(state, reg)
+    assert "Agriculture" in state.research.researched_techs
+    assert state.research.current_tech is None
+    assert reg.buildable_options(state.research.researched_techs).__contains__("Granary")
+
+
+def test_tech_just_completed_flag():
+    state, reg = _new_game()
+    settler = state.units[0]
+    found_city(state, reg, settler, "Rome")
+    state.research.current_tech = "Agriculture"
+    state.research.tech_progress = 19  # one beaker away (cost=20)
+    end_turn(state, reg)  # city produces ≥1 sci → crosses threshold
+    assert state.research.tech_just_completed == "Agriculture"
+    assert state.research.current_tech is None
+    assert state.research.tech_progress == 0
+
+
+def test_available_techs_at_start():
+    names = {t.name for t in available_techs(set())}
+    assert "Agriculture" in names
+    assert "Mining" in names
+    assert "Writing" in names
+    assert "Bronze Working" not in names  # prereq: Mining
+
+
+def test_available_techs_with_prereq():
+    names = {t.name for t in available_techs({"Mining"})}
+    assert "Bronze Working" in names
+    assert "Mining" not in names  # already researched
+
+
+def test_population_cap_function():
+    state, reg = _new_game()
+    settler = state.units[0]
+    city = found_city(state, reg, settler, "Rome")
+    assert population_cap(state, city) == 2  # no improvements yet

@@ -2,9 +2,34 @@ from __future__ import annotations
 
 from .registry import Registry
 from .state import City, GameState, Terrain, Unit
+from .tech import TECHS
 
 FOOD_PER_GROWTH = 5
 CITY_FOUNDING_TERRAINS = {Terrain.GRASS, Terrain.PLAINS}
+
+
+def _compute_happiness(state: GameState, reg: Registry) -> None:
+    """Recompute global happiness before city ticks: buildings add, extra cities subtract."""
+    h = -max(0, len(state.cities) - 1)
+    for city in state.cities:
+        for b in city.buildings:
+            bt = reg.building_types.get(b)
+            if bt and bt.happiness:
+                h += bt.happiness
+    state.happiness = h
+
+
+def population_cap(state: GameState, city: City) -> int:
+    """Hard cap = 2 + worked tiles in a 5×5 radius (tiles with an improvement)."""
+    worked = sum(
+        1
+        for dx in range(-2, 3)
+        for dy in range(-2, 3)
+        if (dx, dy) != (0, 0)
+        for tile in [state.tile(city.x + dx, city.y + dy)]
+        if tile is not None and tile.improvement is not None
+    )
+    return 2 + worked
 
 
 def reset_unit_moves(state: GameState, reg: Registry) -> None:
@@ -75,6 +100,8 @@ def attack(state: GameState, reg: Registry, attacker: Unit, tx: int, ty: int) ->
             ))
         except Exception:
             bonus = 0
+    if state.happiness < 0:
+        bonus -= 1  # unhappy empire: -1 effective attack
     def_tile = state.tile(tx, ty)
     terrain_def = def_tile.terrain.defense_bonus if def_tile else 0
     if at.attack + bonus >= dt.defense + terrain_def:
@@ -115,9 +142,13 @@ def _apply_city_tick(state: GameState, reg: Registry, city: City) -> None:
         bt = reg.building_types.get(b)
         if bt and bt.growth_food_reduction:
             growth_threshold = max(1, int(growth_threshold * (1 - bt.growth_food_reduction)))
-    if city.food_stock >= growth_threshold:
-        city.food_stock -= growth_threshold
-        city.population += 1
+    cap = population_cap(state, city)
+    if state.happiness >= 0 and city.food_stock >= growth_threshold:
+        if city.population < cap:
+            city.food_stock -= growth_threshold
+            city.population += 1
+        else:
+            city.food_stock = growth_threshold - 1  # hold just under threshold at cap
     state.science += sci
     state.gold += gold
 
@@ -164,6 +195,7 @@ def _find_spawn_tile(state: GameState, city: City) -> tuple[int, int] | None:
 
 def end_turn(state: GameState, reg: Registry) -> None:
     import random as _random
+    _compute_happiness(state, reg)
     # Tally science gained this turn so research advances by the same amount cities produced.
     sci_before = state.science
     for city in state.cities:
@@ -176,6 +208,17 @@ def end_turn(state: GameState, reg: Registry) -> None:
         if r.progress >= r.cost:
             r.status = "generating"
             r.progress = r.cost
+
+    # Structured tech research: advances each turn by sci_gained.
+    if r.current_tech is not None:
+        tech = TECHS.get(r.current_tech)
+        if tech is not None:
+            r.tech_progress += sci_gained
+            if r.tech_progress >= tech.cost:
+                r.researched_techs.add(r.current_tech)
+                r.tech_just_completed = r.current_tech
+                r.current_tech = None
+                r.tech_progress = 0
 
     # Deduct maintenance: 1 gold per city + each unit's maintenance cost.
     maintenance = len(state.cities)

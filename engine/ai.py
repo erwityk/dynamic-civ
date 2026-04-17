@@ -23,10 +23,11 @@ def run_ai_turn(state: GameState, reg: Registry) -> None:
 
 def _ai_build(state: GameState, reg: Registry, rng: random.Random) -> None:
     """Assign build targets to AI cities with no current target."""
+    available = set(reg.buildable_options(state.research.researched_techs))
     for city in [c for c in state.cities if c.owner == AI_OWNER]:
         if city.build_target is not None:
             continue
-        if _city_has_adjacent_defender(state, city, AI_OWNER):
+        if _city_has_adjacent_defender(state, city, AI_OWNER) and "Granary" in available:
             city.build_target = "Granary"
         else:
             city.build_target = "Warrior"

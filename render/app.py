@@ -7,7 +7,8 @@ import pygame
 from engine.registry import Registry
 from engine.state import City, GameState, Terrain, Unit
 from engine.ai import run_ai_turn
-from engine.turn import attack, end_turn, found_city, move_unit, purchase_build, reset_unit_moves
+from engine.turn import attack, end_turn, found_city, move_unit, population_cap, purchase_build, reset_unit_moves
+from engine.tech import TECHS, available_techs
 from render.draw import GRID_ORIGIN, TILE, draw_city, draw_map, draw_top_bar, draw_unit, screen_to_tile, tile_to_screen
 from render.ui import Button, TextInput, Toasts
 
@@ -15,6 +16,7 @@ WINDOW_W = 1000
 WINDOW_H = 720
 SIDEBAR_X = GRID_ORIGIN[0] + 20 * TILE + 16  # right edge of map + gap
 SIDEBAR_W = WINDOW_W - SIDEBAR_X - 8
+RESEARCH_PANEL_H = 280
 
 ResearchTrigger = Callable[[str], None]  # invoked with the player's research prompt
 
@@ -63,6 +65,19 @@ class App:
         self.build_buttons: list[Button] = []
         # Buy button for instant production completion; rebuilt each frame.
         self.buy_btn: Optional[Button] = None
+        # Tech-selection buttons, rebuilt each frame.
+        self.tech_buttons: list[Button] = []
+        # Invention/dismiss buttons shown after a tech completes.
+        self.invent_btn = Button(
+            rect=pygame.Rect(SIDEBAR_X, 0, SIDEBAR_W, 26),
+            label="Invent!",
+            on_click=self._on_invent,
+        )
+        self.dismiss_btn = Button(
+            rect=pygame.Rect(SIDEBAR_X, 0, SIDEBAR_W, 26),
+            label="Dismiss",
+            on_click=self._on_dismiss_tech,
+        )
 
     # ---------- button callbacks ----------
 
@@ -100,6 +115,39 @@ class App:
         self.state.research.error = None
         self.state.research.last_result_name = None
         self.toasts.add(f"Researching: {prompt}")
+
+    def _on_select_tech(self, tech_name: str) -> Callable[[], None]:
+        def fn() -> None:
+            r = self.state.research
+            if r.current_tech is not None:
+                self.toasts.add("Already researching a tech", color=(140, 40, 40))
+                return
+            r.current_tech = tech_name
+            r.tech_progress = 0
+            self.toasts.add(f"Now researching {tech_name}")
+        return fn
+
+    def _on_invent(self) -> None:
+        r = self.state.research
+        if r.tech_just_completed is None:
+            return
+        if r.status in ("accumulating", "generating"):
+            self.toasts.add("Invention already in progress", color=(140, 40, 40))
+            return
+        seed = r.tech_just_completed
+        r.tech_just_completed = None
+        r.prompt = seed
+        r.progress = 0
+        r.cost = 5
+        r.status = "accumulating"
+        r.error = None
+        r.last_result_name = None
+        self.research_input.value = seed
+        self.toasts.add(f"Inventing inspired by {seed}!")
+
+    def _on_dismiss_tech(self) -> None:
+        self.state.research.tech_just_completed = None
+        self.toasts.add("Discovery noted.")
 
     def _set_build(self, city: City, target: str) -> Callable[[], None]:
         def fn() -> None:
@@ -185,6 +233,13 @@ class App:
                 continue
             if self.research_btn.handle(event):
                 continue
+            if self.invent_btn.enabled and self.invent_btn.handle(event):
+                continue
+            if self.dismiss_btn.enabled and self.dismiss_btn.handle(event):
+                continue
+            for b in self.tech_buttons:
+                if b.handle(event):
+                    break
             if self.buy_btn and self.buy_btn.handle(event):
                 continue
             for b in self.build_buttons:
@@ -255,7 +310,8 @@ class App:
         if c is None:
             return y
         y = self._draw_label(SIDEBAR_X, y, f"{c.name}", font=self.font_big)
-        y = self._draw_label(SIDEBAR_X, y, f"Pop {c.population}  Food {c.food_stock}  Prod {c.production_stock}")
+        cap = population_cap(self.state, c)
+        y = self._draw_label(SIDEBAR_X, y, f"Pop {c.population}/{cap}  Food {c.food_stock}  Prod {c.production_stock}")
         y = self._draw_label(SIDEBAR_X, y, f"Buildings: {', '.join(c.buildings) or 'none'}", color=(180, 180, 200), font=self.font_sm)
         y = self._draw_label(SIDEBAR_X, y, f"Building: {c.build_target or 'nothing'}")
         self.buy_btn = None
@@ -275,7 +331,7 @@ class App:
         y += 4
         y = self._draw_label(SIDEBAR_X, y, "Set production:", color=(200, 200, 220))
         self.build_buttons = []
-        options = self.reg.buildable_options()
+        options = self.reg.buildable_options(self.state.research.researched_techs)
         for name in options:
             btn = Button(
                 rect=pygame.Rect(SIDEBAR_X, y, SIDEBAR_W, 24),
@@ -288,32 +344,93 @@ class App:
         return y + 6
 
     def _draw_research_panel(self) -> None:
-        panel_top = WINDOW_H - 160
-        pygame.draw.rect(self.screen, (40, 40, 55), (SIDEBAR_X - 8, panel_top, WINDOW_W - (SIDEBAR_X - 8), 160))
+        panel_top = WINDOW_H - RESEARCH_PANEL_H
+        pygame.draw.rect(self.screen, (40, 40, 55),
+                         (SIDEBAR_X - 8, panel_top, WINDOW_W - (SIDEBAR_X - 8), RESEARCH_PANEL_H))
         y = panel_top + 8
-        y = self._draw_label(SIDEBAR_X, y, "Research", font=self.font_big)
         r = self.state.research
-        # Disable button by default; visible branches re-enable it.
         self.research_btn.enabled = False
+        self.tech_buttons = []
+        self.invent_btn.enabled = False
+        self.dismiss_btn.enabled = False
+
+        # --- Section A: Technology ---
+        y = self._draw_label(SIDEBAR_X, y, "Technology", font=self.font_big)
+
+        if r.tech_just_completed:
+            y = self._draw_label(SIDEBAR_X, y, f"Discovered: {r.tech_just_completed}!",
+                                 color=(180, 255, 180))
+            self.invent_btn.rect.topleft = (SIDEBAR_X, y)
+            self.invent_btn.enabled = True
+            self.invent_btn.draw(self.screen, self.font_sm)
+            y += 30
+            self.dismiss_btn.rect.topleft = (SIDEBAR_X, y)
+            self.dismiss_btn.enabled = True
+            self.dismiss_btn.draw(self.screen, self.font_sm)
+            y += 30
+        elif r.current_tech:
+            tech = TECHS.get(r.current_tech)
+            cost = tech.cost if tech else 1
+            y = self._draw_label(SIDEBAR_X, y, f"Researching: {r.current_tech}",
+                                 color=(220, 220, 180))
+            self._draw_progress(SIDEBAR_X, y, r.tech_progress, cost)
+            y += 14
+            y = self._draw_label(SIDEBAR_X, y, f"{r.tech_progress}/{cost} beakers",
+                                 font=self.font_sm)
+        else:
+            avail = available_techs(r.researched_techs)
+            if avail:
+                y = self._draw_label(SIDEBAR_X, y, "Choose research:", color=(200, 200, 220))
+                for tech in avail[:5]:  # cap display to avoid overflow
+                    btn = Button(
+                        rect=pygame.Rect(SIDEBAR_X, y, SIDEBAR_W, 22),
+                        label=f"{tech.name} ({tech.cost})",
+                        on_click=self._on_select_tech(tech.name),
+                    )
+                    btn.draw(self.screen, self.font_sm)
+                    self.tech_buttons.append(btn)
+                    y += 24
+            else:
+                y = self._draw_label(SIDEBAR_X, y, "All techs researched!",
+                                     color=(180, 240, 180))
+
+        if r.researched_techs:
+            label = "Done: " + ", ".join(sorted(r.researched_techs))
+            y = self._draw_label(SIDEBAR_X, y, _wrap(label, 42), color=(140, 140, 160),
+                                 font=self.font_sm)
+
+        # Divider between sections
+        pygame.draw.line(self.screen, (60, 60, 80),
+                         (SIDEBAR_X - 8, y + 3), (WINDOW_W, y + 3))
+        y += 9
+
+        # --- Section B: Invention (free-form research) ---
+        y = self._draw_label(SIDEBAR_X, y, "Invention", font=self.font_big)
+
         if r.status == "idle":
             self.research_input.rect.topleft = (SIDEBAR_X, y)
             self.research_input.draw(self.screen, self.font)
             y += 32
             self.research_btn.rect.topleft = (SIDEBAR_X, y)
+            self.research_btn.label = "Start Research"
+            self.research_btn.on_click = self._on_start_research
             self.research_btn.enabled = bool(self.research_input.value.strip())
             self.research_btn.draw(self.screen, self.font)
         elif r.status == "accumulating":
             y = self._draw_label(SIDEBAR_X, y, f"Researching: {r.prompt}", color=(220, 220, 180))
             self._draw_progress(SIDEBAR_X, y, r.progress, r.cost)
-            y += 18
+            y += 14
             y = self._draw_label(SIDEBAR_X, y, f"{r.progress}/{r.cost} science", font=self.font_sm)
         elif r.status == "generating":
             y = self._draw_label(SIDEBAR_X, y, f"Inventing: {r.prompt}", color=(220, 200, 120))
             tick = (pygame.time.get_ticks() // 300) % 4
-            y = self._draw_label(SIDEBAR_X, y, "Claude is working" + "." * tick, color=(200, 200, 220))
+            y = self._draw_label(SIDEBAR_X, y, "Claude is working" + "." * tick,
+                                 color=(200, 200, 220))
         elif r.status == "done":
-            y = self._draw_label(SIDEBAR_X, y, f"Discovered: {r.last_result_name}", color=(180, 240, 180))
-            y = self._draw_label(SIDEBAR_X, y, "(now buildable in cities)", color=(160, 200, 160), font=self.font_sm)
+            y = self._draw_label(SIDEBAR_X, y, f"Discovered: {r.last_result_name}",
+                                 color=(180, 240, 180))
+            y = self._draw_label(SIDEBAR_X, y, "(now buildable in cities)",
+                                 color=(160, 200, 160), font=self.font_sm)
             self.research_btn.rect.topleft = (SIDEBAR_X, y + 6)
             self.research_btn.label = "Research Again"
             self.research_btn.on_click = self._on_research_again
@@ -321,7 +438,7 @@ class App:
             self.research_btn.draw(self.screen, self.font)
         elif r.status == "error":
             y = self._draw_label(SIDEBAR_X, y, "Research failed:", color=(240, 140, 140))
-            y = self._draw_label(SIDEBAR_X, y, _wrap(r.error or "(unknown)", 38, max_lines=4),
+            y = self._draw_label(SIDEBAR_X, y, _wrap(r.error or "(unknown)", 38, max_lines=3),
                                  color=(240, 180, 180), font=self.font_sm)
             if r.log_path:
                 y = self._draw_label(SIDEBAR_X, y, f"log: {r.log_path}",
