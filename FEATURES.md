@@ -1,12 +1,12 @@
 # Feature Backlog
 
-Tracks unimplemented and partially-implemented features. Current state: single-player sandbox with a 20×20 procedural terrain map, combat and enemy AI, city yields (food/production/science/gold), a production queue, a 7-tech structured tech tree, global happiness, population cap, economy (gold/maintenance/purchasing), and AI-generated mod loading via the `claude` CLI.
+Tracks unimplemented and partially-implemented features. Current state: single-player sandbox with a 20×20 procedural terrain map, combat and enemy AI, city yields (food/production/science/gold), a production queue, a 9-tech structured tech tree (+ Archery, Sailing, Navigation, Space Flight), global happiness, population cap, economy (gold/maintenance/purchasing), fog of war, save/load (3 slots + auto-save), wonders (Pyramids, Great Library, Hanging Gardens, Space Colony), naval units (Galley, Caravel, Harbour), city culture & borders, difficulty settings (Chieftain/Warlord/Emperor), minimap, and AI-generated mod loading via the `claude` CLI.
 
 ---
 
 ## 1. Combat
 
-**Status:** Logic stub exists in `engine/turn.py:attack()` but is never called from the UI. `app.py` comment reads: *"Solo sandbox: all units are friendly, so no attack path. Just move."*
+**Status: 1a Done, 1b Done, 1c Done, 1d Done.** Probabilistic d6 combat model in `attack()`. Ranged combat with `range` field on `UnitType`; Archer (range=2, requires Archery) and Catapult (range=2) implemented. Ranged attackers take no counter-damage. Terrain/city defense bonuses already wired.
 
 ### 1a. UI Integration
 - Right-click an adjacent enemy unit to initiate an attack (or a separate "Attack" button when a unit with moves remaining is selected and an enemy is adjacent).
@@ -311,6 +311,15 @@ One-per-game buildings that can be constructed by any civ; once built, all other
 | 6 | Happiness & population cap (§8) | **Done** |
 | 7 | Victory conditions (§10) — gives the game an end | **Done** |
 | 8 | Unit progression (§11) — rewards keeping units alive | **Done** |
-| 9 | Fog of war (§13) — changes exploration incentive | — |
+| 9 | Fog of war (§13) — changes exploration incentive | **Done** |
 | 10 | Workers & improvements (§7) — tile optimization layer | **Done** |
-| 11 | Save/Load (§14) — quality of life | — |
+| 11 | Save/Load (§14) — quality of life | **Done** |
+| 12 | Probabilistic combat (§1b) | **Done** |
+| 13 | Ranged combat (§1c) — Archer, Catapult range | **Done** |
+| 14 | Wonders (§15) — Pyramids, Great Library, Hanging Gardens, Space Colony | **Done** |
+| 15 | Difficulty settings (§18) — Chieftain / Warlord / Emperor | **Done** |
+| 16 | City borders & culture (§12) | **Done** |
+| 17 | Naval units (§16) — Galley, Caravel, Harbour, embark | **Done** |
+| 18 | Visual polish (§17) — minimap, city pop numbers, sound infra | **Done** |
+| 19 | Trade routes (§4) | — |
+| 20 | Resources (§6) — strategic/luxury | — |

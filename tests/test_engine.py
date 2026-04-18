@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from engine.map import generate_map
 from engine.registry import Registry, register_builtins
 from engine.state import City, GameState, Terrain, Tile, Unit
@@ -107,13 +109,14 @@ def test_found_city_on_forest_blocked():
 
 
 def test_terrain_defense_bonus_in_attack():
-    # Warrior (attack=2) vs Warrior (defense=2) on FOREST (defense_bonus=1).
-    # 2 < 2+1 → defender should survive.
+    # Warrior (atk=2) vs Warrior (def=2) on FOREST (defense_bonus=1).
+    # With equal dice rolls (both 3): atk_roll=5, def_roll=6 → defender wins.
     state, reg = _make_state({(11, 10): Terrain.FOREST})
     attacker = Unit(id=state.new_id(), type_name="Warrior", x=10, y=10, moves_left=1, owner="player")
     defender = Unit(id=state.new_id(), type_name="Warrior", x=11, y=10, moves_left=0, owner="ai_1")
     state.units.extend([attacker, defender])
-    attack(state, reg, attacker, 11, 10)
+    with patch("engine.turn.random.randint", side_effect=[3, 3]):
+        attack(state, reg, attacker, 11, 10)
     assert defender in state.units
 
 

@@ -4,13 +4,16 @@ from typing import Callable, Optional
 
 import pygame
 
+from pathlib import Path
+
 from engine.registry import Registry
 from engine.state import City, GameState, Terrain, Unit, VictoryResult
 from engine.ai import run_ai_turn
 from engine.improvements import IMPROVEMENT_TURNS, valid_improvements
-from engine.turn import attack, check_victory, end_turn, found_city, move_unit, population_cap, purchase_build, reset_unit_moves, worker_improve
+from engine.save import load_game, save_exists, save_game
+from engine.turn import attack, check_victory, embark_unit, end_turn, found_city, move_unit, population_cap, purchase_build, reset_unit_moves, worker_improve
 from engine.tech import TECHS, available_techs
-from render.draw import GRID_ORIGIN, TILE, draw_city, draw_improvements, draw_map, draw_top_bar, draw_unit, screen_to_tile, tile_to_screen
+from render.draw import GRID_ORIGIN, TILE, draw_city, draw_city_borders, draw_improvements, draw_map, draw_minimap, draw_top_bar, draw_unit, screen_to_tile, tile_to_screen
 from render.ui import Button, TextInput, Toasts
 
 WINDOW_W = 1000
@@ -25,20 +28,27 @@ ResearchTrigger = Callable[[str], None]  # invoked with the player's research pr
 class App:
     def __init__(self, state: GameState, reg: Registry, research_trigger: Optional[ResearchTrigger] = None,
                  research_poll: Optional[Callable[[], None]] = None,
-                 reset_callback: Optional[Callable[[], tuple[GameState, Registry]]] = None):
+                 reset_callback: Optional[Callable[[], tuple[GameState, Registry]]] = None,
+                 repo_root: Optional[Path] = None):
         pygame.init()
+        try:
+            pygame.mixer.init()
+        except Exception:
+            pass
         pygame.display.set_caption("Dynamic Civ")
         self.screen = pygame.display.set_mode((WINDOW_W, WINDOW_H))
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("consolas", 14)
         self.font_sm = pygame.font.SysFont("consolas", 12)
         self.font_big = pygame.font.SysFont("consolas", 18, bold=True)
+        self._sounds: dict[str, object] = self._load_sounds(repo_root)
 
         self.state = state
         self.reg = reg
         self.research_trigger = research_trigger
         self.research_poll = research_poll
         self.reset_callback = reset_callback
+        self.repo_root = repo_root
 
         self.selected_unit: Optional[Unit] = None
         self.selected_city: Optional[City] = None
@@ -47,6 +57,9 @@ class App:
         self._pending_promotion_unit: Optional[Unit] = None
         self.promotion_buttons: list[Button] = []
         self.improve_buttons: list[Button] = []
+        self._show_difficulty_select = True
+        self._difficulty_buttons: list[Button] = []
+        self._init_difficulty_buttons()
 
         self.end_turn_btn = Button(
             rect=pygame.Rect(SIDEBAR_X, 40, SIDEBAR_W, 36),
@@ -89,15 +102,126 @@ class App:
             label="Dismiss",
             on_click=self._on_dismiss_tech,
         )
+        btn_w = (SIDEBAR_W - 4) // 3
+        self.save_buttons = [
+            Button(rect=pygame.Rect(SIDEBAR_X + i * (btn_w + 2), 0, btn_w, 24),
+                   label=f"Save {i + 1}", on_click=self._on_save(i + 1))
+            for i in range(3)
+        ]
+        self.load_buttons = [
+            Button(rect=pygame.Rect(SIDEBAR_X + i * (btn_w + 2), 0, btn_w, 24),
+                   label=f"Load {i + 1}", on_click=self._on_load(i + 1))
+            for i in range(3)
+        ]
+
+    def _load_sounds(self, repo_root: Optional[Path]) -> dict[str, object]:
+        sounds = {}
+        if repo_root is None:
+            return sounds
+        sound_dir = repo_root / "assets" / "sounds"
+        names = ["move", "combat", "found_city", "end_turn", "research"]
+        for name in names:
+            for ext in ("ogg", "wav"):
+                path = sound_dir / f"{name}.{ext}"
+                if path.exists():
+                    try:
+                        sounds[name] = pygame.mixer.Sound(str(path))
+                    except Exception:
+                        pass
+                    break
+        return sounds
+
+    def _play_sound(self, name: str) -> None:
+        s = self._sounds.get(name)
+        if s is not None:
+            try:
+                s.play()  # type: ignore[union-attr]
+            except Exception:
+                pass
+
+    def _init_difficulty_buttons(self) -> None:
+        labels = [("Chieftain", "chieftain"), ("Warlord", "warlord"), ("Emperor", "emperor")]
+        btn_w = (SIDEBAR_W - 4) // 3
+        cy = WINDOW_H // 2 + 10
+        self._difficulty_buttons = [
+            Button(rect=pygame.Rect(WINDOW_W // 2 - SIDEBAR_W // 2 + i * (btn_w + 2), cy, btn_w, 36),
+                   label=label, on_click=self._on_select_difficulty(diff))
+            for i, (label, diff) in enumerate(labels)
+        ]
+
+    def _on_select_difficulty(self, difficulty: str) -> Callable[[], None]:
+        def fn() -> None:
+            self._show_difficulty_select = False
+            ref = getattr(self, "_difficulty_ref", None)
+            if ref is not None:
+                ref["value"] = difficulty
+            if self.reset_callback:
+                self.state, self.reg = self.reset_callback()
+                self.selected_unit = None
+                self.selected_city = None
+                self._pending_promotion_unit = None
+                self.toasts = Toasts()
+                self.toasts.add(f"Difficulty: {difficulty.capitalize()}")
+        return fn
+
+    def _draw_difficulty_select(self) -> None:
+        overlay = pygame.Surface((WINDOW_W, WINDOW_H))
+        overlay.set_alpha(230)
+        overlay.fill((10, 10, 20))
+        self.screen.blit(overlay, (0, 0))
+        cx = WINDOW_W // 2
+        font_title = pygame.font.SysFont("consolas", 36, bold=True)
+        t = font_title.render("Choose Difficulty", True, (240, 240, 240))
+        self.screen.blit(t, t.get_rect(center=(cx, WINDOW_H // 2 - 60)))
+        descs = {
+            "Chieftain": "AI builds slowly. Good for learning.",
+            "Warlord": "Balanced. Default experience.",
+            "Emperor": "AI gets +50% yields and an extra Warrior.",
+        }
+        for btn in self._difficulty_buttons:
+            btn.draw(self.screen, self.font_big)
+            dy = descs.get(btn.label, "")
+            lbl = self.font_sm.render(dy, True, (180, 180, 200))
+            self.screen.blit(lbl, lbl.get_rect(center=(btn.rect.centerx, btn.rect.bottom + 14)))
 
     # ---------- button callbacks ----------
 
     def _on_end_turn(self) -> None:
+        self._play_sound("end_turn")
+        try:
+            save_game(self.state, slot=0)  # auto-save slot 0
+        except Exception:
+            pass
         end_turn(self.state, self.reg)
         run_ai_turn(self.state, self.reg)
         check_victory(self.state, self.reg)  # catches defeat after AI kills last city/settler
         self.selected_unit = None
         self.toasts.add(f"Turn {self.state.turn}")
+
+    def _on_save(self, slot: int) -> Callable[[], None]:
+        def fn() -> None:
+            try:
+                save_game(self.state, slot)
+                self.toasts.add(f"Game saved to slot {slot}")
+            except Exception as e:
+                self.toasts.add(f"Save failed: {e}", color=(180, 60, 60))
+        return fn
+
+    def _on_load(self, slot: int) -> Callable[[], None]:
+        def fn() -> None:
+            if not save_exists(slot):
+                self.toasts.add(f"No save in slot {slot}", color=(140, 40, 40))
+                return
+            try:
+                self.state, self.reg = load_game(slot, repo_root=self.repo_root)
+                self.selected_unit = None
+                self.selected_city = None
+                self._pending_promotion_unit = None
+                self.toasts = Toasts()
+                self.toasts.add(f"Game loaded from slot {slot}")
+            except Exception as e:
+                self.toasts.add(f"Load failed: {e}", color=(180, 60, 60))
+        return fn
 
     def _on_found_city(self) -> None:
         if not self.selected_unit:
@@ -106,6 +230,7 @@ class App:
         name = f"City {self._city_counter}"
         city = found_city(self.state, self.reg, self.selected_unit, name)
         if city:
+            self._play_sound("found_city")
             self.toasts.add(f"Founded {name}")
             self.selected_unit = None
             self.selected_city = city
@@ -162,13 +287,12 @@ class App:
         self.toasts.add("Discovery noted.")
 
     def _on_new_game(self) -> None:
-        if self.reset_callback:
-            self.state, self.reg = self.reset_callback()
-            self.selected_unit = None
-            self.selected_city = None
-            self._pending_promotion_unit = None
-            self.toasts = Toasts()
-            self._city_counter = 0
+        self._show_difficulty_select = True
+        self.selected_unit = None
+        self.selected_city = None
+        self._pending_promotion_unit = None
+        self.toasts = Toasts()
+        self._city_counter = 0
 
     def _on_choose_promotion(self, unit: Unit, promo: str) -> Callable[[], None]:
         def fn() -> None:
@@ -208,7 +332,8 @@ class App:
             unit_here = self.state.unit_at(tx, ty)
             if self.selected_unit:
                 # Only move onto empty tiles; enemy tiles require right-click attack.
-                if unit_here is None and move_unit(self.state, self.selected_unit, tx, ty):
+                if unit_here is None and move_unit(self.state, self.selected_unit, tx, ty, self.reg):
+                    self._play_sound("move")
                     return
             # Otherwise: selection.
             if unit_here is not None:
@@ -237,7 +362,8 @@ class App:
 
         success = attack(self.state, self.reg, attacker, tx, ty)
         if not success:
-            return  # out of moves, not adjacent, or other precondition failed
+            return  # out of moves, out of range, or other precondition failed
+        self._play_sound("combat")
 
         attacker_dead = attacker not in self.state.units
         target_dead = self.state.unit_at(tx, ty) is None
@@ -258,6 +384,12 @@ class App:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
+            # Difficulty selection overlay takes full focus.
+            if self._show_difficulty_select:
+                for b in self._difficulty_buttons:
+                    if b.handle(event):
+                        break
+                continue
             # When game is over, only the New Game button is active.
             if self.state.game_over is not None:
                 self.new_game_btn.handle(event)
@@ -289,6 +421,9 @@ class App:
             for b in self.improve_buttons:
                 if b.handle(event):
                     break
+            for b in self.save_buttons + self.load_buttons:
+                if b.handle(event):
+                    break
             if event.type == pygame.MOUSEBUTTONDOWN and event.pos[0] < SIDEBAR_X - 8:
                 self._handle_map_click(event.pos[0], event.pos[1], event.button)
             if event.type == pygame.KEYDOWN and not self.research_input.active:
@@ -309,6 +444,14 @@ class App:
             return False
         ut = self.reg.unit_types.get(self.selected_unit.type_name)
         return bool(ut and ut.can_improve)
+
+    def _on_embark(self, unit: Unit) -> Callable[[], None]:
+        def fn() -> None:
+            if embark_unit(self.state, self.reg, unit):
+                self.toasts.add(f"{unit.type_name} embarked onto water")
+            else:
+                self.toasts.add("Cannot embark here — need Harbour nearby", color=(140, 40, 40))
+        return fn
 
     def _on_improve(self, unit: Unit, name: str) -> Callable[[], None]:
         def fn() -> None:
@@ -338,6 +481,7 @@ class App:
 
         # Research panel (always visible at bottom-ish)
         self._draw_research_panel()
+        self._draw_save_load_panel()
 
     def _draw_label(self, x: int, y: int, text: str, color=(230, 230, 230), font=None) -> int:
         f = font or self.font
@@ -354,7 +498,10 @@ class App:
         ut = self.reg.unit_types.get(u.type_name)
         y = self._draw_label(SIDEBAR_X, y, f"Unit: {u.type_name}", font=self.font_big)
         if ut:
-            y = self._draw_label(SIDEBAR_X, y, f"Atk {ut.attack}  Def {ut.defense}  Move {ut.move}")
+            stats = f"Atk {ut.attack}  Def {ut.defense}  Move {ut.move}"
+            if ut.range > 1:
+                stats += f"  Range {ut.range}"
+            y = self._draw_label(SIDEBAR_X, y, stats)
             y = self._draw_label(SIDEBAR_X, y, f"HP {u.hp}  Moves left {u.moves_left}")
             xp_str = f"XP {u.xp}/10"
             if u.promotions:
@@ -379,6 +526,17 @@ class App:
             self.found_btn.rect.topleft = (SIDEBAR_X, y + 4)
             self.found_btn.draw(self.screen, self.font)
             y += 36
+        # Embark button for non-naval land units
+        if ut and not ut.can_traverse_water and not u.embarked and u.owner == "player":
+            embark_btn = Button(
+                rect=pygame.Rect(SIDEBAR_X, y, SIDEBAR_W, 28),
+                label="Embark",
+                on_click=self._on_embark(u),
+            )
+            embark_btn.draw(self.screen, self.font)
+            y += 32
+        elif u.embarked:
+            y = self._draw_label(SIDEBAR_X, y, "[Embarked]", color=(80, 160, 255), font=self.font_sm)
         # Worker improvement UI
         if self._worker_selected():
             self.improve_buttons = []
@@ -418,6 +576,7 @@ class App:
         y = self._draw_label(SIDEBAR_X, y, f"{c.name}", font=self.font_big)
         cap = population_cap(self.state, c)
         y = self._draw_label(SIDEBAR_X, y, f"Pop {c.population}/{cap}  Food {c.food_stock}  Prod {c.production_stock}")
+        y = self._draw_label(SIDEBAR_X, y, f"Culture {c.culture}", color=(200, 160, 220), font=self.font_sm)
         y = self._draw_label(SIDEBAR_X, y, f"Buildings: {', '.join(c.buildings) or 'none'}", color=(180, 180, 200), font=self.font_sm)
         y = self._draw_label(SIDEBAR_X, y, f"Building: {c.build_target or 'nothing'}")
         self.buy_btn = None
@@ -437,11 +596,17 @@ class App:
         y += 4
         y = self._draw_label(SIDEBAR_X, y, "Set production:", color=(200, 200, 220))
         self.build_buttons = []
-        options = self.reg.buildable_options(self.state.research.researched_techs)
+        options = self.reg.buildable_options(
+            self.state.research.researched_techs, self.state.built_wonders)
         for name in options:
+            bt = self.reg.building_types.get(name)
+            is_wonder = bt is not None and bt.is_wonder
+            label = name + (" *" if c.build_target == name else "")
+            if is_wonder:
+                label = f"[W] {label}"
             btn = Button(
                 rect=pygame.Rect(SIDEBAR_X, y, SIDEBAR_W, 24),
-                label=name + (" *" if c.build_target == name else ""),
+                label=label,
                 on_click=self._set_build(c, name),
             )
             btn.draw(self.screen, self.font_sm)
@@ -564,6 +729,20 @@ class App:
         self.research_btn.on_click = self._on_start_research
         self.research_input.value = ""
 
+    def _draw_save_load_panel(self) -> None:
+        y = WINDOW_H - 58
+        self._draw_label(SIDEBAR_X, y, "Save / Load", color=(160, 160, 200), font=self.font_sm)
+        y += 14
+        btn_w = (SIDEBAR_W - 4) // 3
+        for i, btn in enumerate(self.save_buttons):
+            btn.rect.topleft = (SIDEBAR_X + i * (btn_w + 2), y)
+            btn.draw(self.screen, self.font_sm)
+        y += 26
+        for i, btn in enumerate(self.load_buttons):
+            btn.rect.topleft = (SIDEBAR_X + i * (btn_w + 2), y)
+            btn.enabled = save_exists(i + 1)
+            btn.draw(self.screen, self.font_sm)
+
     def _draw_game_over_screen(self) -> None:
         result = self.state.game_over
         if result is None:
@@ -582,10 +761,14 @@ class App:
             title = "VICTORY"
             title_color = (255, 220, 60)
             sub = "Domination! All enemy capitals captured."
+        elif result.victory_type == "science":
+            title = "VICTORY"
+            title_color = (100, 220, 255)
+            sub = "Science Victory! Space Colony launched."
         else:
             title = "VICTORY"
             title_color = (120, 220, 255)
-            sub = f"Time's up! Final score wins."
+            sub = "Time's up! Final score wins."
         font_title = pygame.font.SysFont("consolas", 48, bold=True)
         t = font_title.render(title, True, title_color)
         self.screen.blit(t, t.get_rect(center=(cx, cy)))
@@ -610,15 +793,25 @@ class App:
         self.screen.fill((20, 20, 28))
         draw_top_bar(self.screen, self.state, self.font)
         draw_map(self.screen, self.state)
+        draw_city_borders(self.screen, self.state)
         draw_improvements(self.screen, self.state, self.font_sm)
         for city in self.state.cities:
-            draw_city(self.screen, city, self.font_sm)
+            tile = self.state.tile(city.x, city.y)
+            if tile is None or tile.visibility != "hidden":
+                draw_city(self.screen, city, self.font_sm)
         for unit in self.state.units:
-            draw_unit(self.screen, unit, self.reg, unit is self.selected_unit, self.font_sm)
+            tile = self.state.tile(unit.x, unit.y)
+            if tile is None:
+                continue
+            if unit.owner == "player" or tile.visibility == "visible":
+                draw_unit(self.screen, unit, self.reg, unit is self.selected_unit, self.font_sm)
+        draw_minimap(self.screen, self.state)
         self._draw_sidebar()
         self.toasts.draw(self.screen, self.font_sm)
         if self.state.game_over is not None:
             self._draw_game_over_screen()
+        if self._show_difficulty_select:
+            self._draw_difficulty_select()
 
     # ---------- run loop ----------
 

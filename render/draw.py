@@ -4,6 +4,7 @@ import pygame
 
 from engine.registry import Registry
 from engine.state import GameState, Terrain, Unit
+from engine.turn import city_border_radius
 
 IMPROVEMENT_ICONS: dict[str, tuple[str, tuple[int, int, int]]] = {
     "Farm":        ("F", (160, 220, 80)),
@@ -46,20 +47,47 @@ def draw_map(surf: pygame.Surface, state: GameState) -> None:
         for y in range(state.height):
             t = state.tiles[x][y]
             sx, sy = tile_to_screen(x, y)
-            pygame.draw.rect(surf, TERRAIN_COLORS[t.terrain], (sx, sy, TILE, TILE))
-            pygame.draw.rect(surf, (30, 50, 30), (sx, sy, TILE, TILE), width=1)
+            if t.visibility == "hidden":
+                pygame.draw.rect(surf, (0, 0, 0), (sx, sy, TILE, TILE))
+            elif t.visibility == "explored":
+                base = TERRAIN_COLORS[t.terrain]
+                dim = tuple(int(c * 0.45) for c in base)
+                pygame.draw.rect(surf, dim, (sx, sy, TILE, TILE))
+                pygame.draw.rect(surf, (15, 25, 15), (sx, sy, TILE, TILE), width=1)
+            else:
+                pygame.draw.rect(surf, TERRAIN_COLORS[t.terrain], (sx, sy, TILE, TILE))
+                pygame.draw.rect(surf, (30, 50, 30), (sx, sy, TILE, TILE), width=1)
 
 
 def draw_improvements(surf: pygame.Surface, state: GameState, font: pygame.font.Font) -> None:
     for x in range(state.width):
         for y in range(state.height):
-            imp = state.tiles[x][y].improvement
+            tile = state.tiles[x][y]
+            if tile.visibility == "hidden":
+                continue
+            imp = tile.improvement
             if imp not in IMPROVEMENT_ICONS:
                 continue
             letter, color = IMPROVEMENT_ICONS[imp]
             sx, sy = tile_to_screen(x, y)
             lbl = font.render(letter, True, color)
             surf.blit(lbl, (sx + 2, sy + TILE - lbl.get_height() - 2))
+
+
+def draw_city_borders(surf: pygame.Surface, state: GameState) -> None:
+    """Draw semi-transparent city territory overlays (§12)."""
+    border_surf = pygame.Surface((TILE, TILE), pygame.SRCALPHA)
+    for city in state.cities:
+        r = city_border_radius(city)
+        color = (0, 180, 255, 45) if city.owner == "player" else (220, 60, 60, 45)
+        border_surf.fill(color)
+        for dx in range(-r, r + 1):
+            for dy in range(-r, r + 1):
+                tile = state.tile(city.x + dx, city.y + dy)
+                if tile is None or tile.visibility == "hidden":
+                    continue
+                sx, sy = tile_to_screen(city.x + dx, city.y + dy)
+                surf.blit(border_surf, (sx, sy))
 
 
 def draw_city(surf: pygame.Surface, city, font: pygame.font.Font) -> None:
@@ -72,6 +100,9 @@ def draw_city(surf: pygame.Surface, city, font: pygame.font.Font) -> None:
     bg = pygame.Rect(sx - 4, sy - 14, label.get_width() + 8, 14)
     pygame.draw.rect(surf, (0, 0, 0), bg)
     surf.blit(label, (sx, sy - 14))
+    # Population number in bottom-right of tile
+    pop_lbl = font.render(str(city.population), True, (240, 240, 240))
+    surf.blit(pop_lbl, (sx + TILE - pop_lbl.get_width() - 3, sy + TILE - pop_lbl.get_height() - 2))
 
 
 def draw_unit(surf: pygame.Surface, unit: Unit, reg: Registry, selected: bool, font: pygame.font.Font) -> None:
@@ -116,6 +147,43 @@ def draw_unit(surf: pygame.Surface, unit: Unit, reg: Registry, selected: bool, f
     if unit.promotions:
         star = font.render("*", True, (255, 220, 60))
         surf.blit(star, (sx + TILE - star.get_width() - 2, sy + 1))
+    # Wave glyph for embarked units
+    if unit.embarked:
+        wave = font.render("~", True, (80, 160, 255))
+        surf.blit(wave, (sx + 2, sy + 1))
+
+
+def draw_minimap(surf: pygame.Surface, state: GameState) -> None:
+    """Draw a small 100×100 minimap overlay in the bottom-right of the map area."""
+    px = 5  # pixels per tile
+    mm_w = state.width * px
+    mm_h = state.height * px
+    ox, oy = GRID_ORIGIN
+    map_right = ox + state.width * TILE
+    map_bottom = oy + state.height * TILE
+    mm_x = map_right - mm_w - 4
+    mm_y = map_bottom - mm_h - 4
+    # Background
+    pygame.draw.rect(surf, (10, 10, 10), (mm_x - 1, mm_y - 1, mm_w + 2, mm_h + 2))
+    for x in range(state.width):
+        for y in range(state.height):
+            tile = state.tiles[x][y]
+            if tile.visibility == "hidden":
+                color = (0, 0, 0)
+            else:
+                color = TERRAIN_COLORS[tile.terrain]
+            pygame.draw.rect(surf, color, (mm_x + x * px, mm_y + y * px, px, px))
+    # City dots
+    for city in state.cities:
+        tile = state.tile(city.x, city.y)
+        if tile and tile.visibility != "hidden":
+            dot_color = (255, 220, 60) if city.owner == "player" else (220, 60, 60)
+            pygame.draw.rect(surf, dot_color, (mm_x + city.x * px, mm_y + city.y * px, px, px))
+    # Unit dots (player only for simplicity)
+    for unit in state.units:
+        if unit.owner == "player":
+            pygame.draw.rect(surf, (255, 255, 255), (mm_x + unit.x * px + 1, mm_y + unit.y * px + 1, px - 2, px - 2))
+    pygame.draw.rect(surf, (180, 180, 180), (mm_x - 1, mm_y - 1, mm_w + 2, mm_h + 2), width=1)
 
 
 def draw_top_bar(surf: pygame.Surface, state: GameState, font: pygame.font.Font) -> None:

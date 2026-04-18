@@ -44,6 +44,7 @@ class ModAPI:
         color: tuple[int, int, int] = (100, 100, 200),
         description: str = "",
         on_attack: Optional[Callable] = None,
+        range: int = 1,
     ) -> None:
         name = str(name).strip()
         if not name:
@@ -64,6 +65,7 @@ class ModAPI:
             description=str(description)[:400],
             can_found_city=False,
             on_attack=on_attack,
+            range=_clamp("range", range),
         )
         self._registry.add_unit(ut)
         self.registered.append(name)

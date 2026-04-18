@@ -9,15 +9,17 @@ from pathlib import Path
 from engine.map import generate_map
 from engine.registry import Registry, register_builtins
 from engine.state import Civilization, GameState, Unit
-from engine.turn import reset_unit_moves
+from engine.turn import compute_visibility, reset_unit_moves
 from render.app import App
 
 
-def new_game(seed: int | None = None) -> tuple[GameState, Registry]:
+def new_game(seed: int | None = None, game_id: str | None = None,
+             difficulty: str = "warlord") -> tuple[GameState, Registry]:
     reg = Registry()
     register_builtins(reg)
     tiles = generate_map(20, 20, seed=seed)
-    state = GameState(width=20, height=20, tiles=tiles)
+    gid = game_id or uuid.uuid4().hex[:8]
+    state = GameState(width=20, height=20, tiles=tiles, game_id=gid, difficulty=difficulty)
 
     # Player civilization.
     state.civs.append(Civilization(name="player", color=(0, 180, 255)))
@@ -30,8 +32,11 @@ def new_game(seed: int | None = None) -> tuple[GameState, Registry]:
     ax, ay = 17, 17
     state.units.append(Unit(id=state.new_id(), type_name="Settler", x=ax, y=ay, owner="ai_1"))
     state.units.append(Unit(id=state.new_id(), type_name="Warrior", x=ax - 1, y=ay, owner="ai_1"))
+    if difficulty == "emperor":
+        state.units.append(Unit(id=state.new_id(), type_name="Warrior", x=ax, y=ay - 1, owner="ai_1"))
 
     reset_unit_moves(state, reg)
+    compute_visibility(state, reg)
     return state, reg
 
 
@@ -45,9 +50,8 @@ def main() -> int:
     state, reg = new_game(seed=args.seed)
 
     # Per-game mod sandbox.
-    game_id = uuid.uuid4().hex[:8]
     repo_root = Path(__file__).resolve().parent
-    mod_dir = repo_root / "mods" / game_id
+    mod_dir = repo_root / "mods" / state.game_id
     mod_dir.mkdir(parents=True, exist_ok=True)
 
     # Research runner is wired up in Phase 2. For now, no trigger -> research
@@ -64,8 +68,14 @@ def main() -> int:
     except ImportError:
         print("[dynamic-civ] research runner not yet implemented; research will block at 'generating'.")
 
+    _difficulty = {"value": "warlord"}
+
+    def _reset() -> tuple[GameState, Registry]:
+        return new_game(seed=args.seed, difficulty=_difficulty["value"])
+
     app = App(state=state, reg=reg, research_trigger=research_trigger, research_poll=research_poll,
-              reset_callback=lambda: new_game(seed=args.seed))
+              reset_callback=_reset, repo_root=repo_root)
+    app._difficulty_ref = _difficulty  # App difficulty overlay writes here
     app.run()
     return 0
 

@@ -15,10 +15,14 @@ TECHS: dict[str, Tech] = {t.name: t for t in [
     Tech("Agriculture",      20, (),              ("Granary",)),
     Tech("Mining",           20, (),              ("Workshop",)),
     Tech("Writing",          25, (),              ("Library",)),
+    Tech("Archery",          20, (),              ("Archer",)),
     Tech("Bronze Working",   30, ("Mining",),     ("Spearman",)),
     Tech("Mathematics",      35, ("Writing",),    ("Aqueduct", "Catapult")),
     Tech("Currency",         30, ("Writing",),    ("Market",)),
     Tech("Horseback Riding", 35, ("Agriculture",), ("Cavalry",)),
+    Tech("Space Flight",    120, ("Mathematics",), ("Space Colony",)),
+    Tech("Sailing",          50, (),               ("Galley", "Harbour")),
+    Tech("Navigation",       80, ("Sailing",),     ("Caravel",)),
 ]}
 
 

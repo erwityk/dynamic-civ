@@ -8,6 +8,8 @@ STAT_BOUNDS = {
     "attack": (0, 10),
     "defense": (0, 10),
     "move": (0, 4),
+    "range": (1, 5),
+    "sight": (1, 4),
     "cost": (5, 200),
     "food": (-2, 5),
     "production": (-2, 5),
@@ -42,6 +44,9 @@ class UnitType:
     max_hp: int = 10
     on_attack: Optional[Callable] = None  # hook signature: (attacker_stats, defender_stats) -> int bonus
     requires_tech: Optional[str] = None  # tech name that must be researched to build/train
+    range: int = 1   # attack range in tiles (1 = melee; >1 = ranged, no counter-damage)
+    sight: int = 2   # fog-of-war visibility radius
+    can_traverse_water: bool = False  # naval units can move on water tiles
 
 
 @dataclass(frozen=True)
@@ -57,6 +62,9 @@ class BuildingType:
     description: str = ""
     requires_tech: Optional[str] = None  # tech name that must be researched to construct
     happiness: int = 0  # empire-wide happiness bonus (e.g. Colosseum +3)
+    is_wonder: bool = False  # one-per-game world wonder
+    wonder_effect: Optional[str] = None  # effect key handled by _apply_wonder_effect
+    culture_per_turn: int = 0  # culture generated each turn (§12)
 
 
 @dataclass
@@ -79,12 +87,16 @@ class Registry:
         """Freeze the current registrations as built-ins; mods cannot overwrite these names."""
         self.builtin_names = set(self.unit_types) | set(self.building_types)
 
-    def buildable_options(self, researched_techs: set[str] | None = None) -> list[str]:
+    def buildable_options(self, researched_techs: set[str] | None = None,
+                          built_wonders: set[str] | None = None) -> list[str]:
         """Return names of all types whose tech prerequisite (if any) is satisfied."""
         def unlocked(item) -> bool:
-            return item.requires_tech is None or (
-                researched_techs is not None and item.requires_tech in researched_techs
-            )
+            if item.requires_tech is not None:
+                if researched_techs is None or item.requires_tech not in researched_techs:
+                    return False
+            if getattr(item, "is_wonder", False) and built_wonders and item.name in built_wonders:
+                return False
+            return True
         return (
             [n for n, ut in self.unit_types.items() if unlocked(ut)]
             + [n for n, bt in self.building_types.items() if unlocked(bt)]
@@ -132,11 +144,21 @@ def register_builtins(reg: Registry) -> None:
         requires_tech="Horseback Riding",
     ))
     reg.add_unit(UnitType(
+        name="Archer",
+        attack=3, defense=1, move=2, cost=40,
+        shape="triangle", color=(200, 180, 60),
+        description="Ranged unit. Attacks 2 tiles away, takes no counter-damage.",
+        maintenance=1,
+        range=2,
+        requires_tech="Archery",
+    ))
+    reg.add_unit(UnitType(
         name="Catapult",
         attack=4, defense=1, move=1, cost=50,
         shape="square", color=(140, 100, 80),
-        description="Siege engine.",
+        description="Siege engine. Attacks 2 tiles away, takes no counter-damage.",
         maintenance=1,
+        range=2,
         requires_tech="Mathematics",
     ))
     # Buildings — tech-locked
@@ -165,8 +187,8 @@ def register_builtins(reg: Registry) -> None:
     ))
     reg.add_building(BuildingType(
         name="Library",
-        cost=60, science=2,
-        description="Center of knowledge. (+2 science)",
+        cost=60, science=2, culture_per_turn=1,
+        description="Center of knowledge. (+2 science, +1 culture/turn)",
         requires_tech="Writing",
     ))
     reg.add_building(BuildingType(
@@ -175,15 +197,62 @@ def register_builtins(reg: Registry) -> None:
         description="Craftsmen improve city output. (+1 production)",
         requires_tech="Mining",
     ))
-    # Buildings — happiness, no tech required
+    # Buildings — happiness / culture, no tech required
     reg.add_building(BuildingType(
         name="Temple",
-        cost=60, happiness=2,
-        description="Spiritual center of the city. (+2 happiness)",
+        cost=60, happiness=2, culture_per_turn=2,
+        description="Spiritual center of the city. (+2 happiness, +2 culture/turn)",
     ))
     reg.add_building(BuildingType(
         name="Colosseum",
         cost=120, happiness=3,
         description="Gladiatorial games keep citizens content. (+3 happiness)",
+    ))
+    # Naval units (§16)
+    reg.add_unit(UnitType(
+        name="Galley",
+        attack=2, defense=2, move=3, cost=40,
+        shape="square", color=(80, 120, 200),
+        description="Basic naval unit. Travels on water.",
+        maintenance=1, can_traverse_water=True,
+        requires_tech="Sailing",
+    ))
+    reg.add_unit(UnitType(
+        name="Caravel",
+        attack=3, defense=2, move=4, cost=60,
+        shape="square", color=(100, 140, 220),
+        description="Advanced naval unit. Travels on water.",
+        maintenance=2, can_traverse_water=True,
+        requires_tech="Navigation",
+    ))
+    # Naval building
+    reg.add_building(BuildingType(
+        name="Harbour",
+        cost=80, gold=1,
+        description="Allows land units to embark onto water. (+1 gold)",
+        requires_tech="Sailing",
+    ))
+    # Wonders — one-per-game (§15)
+    reg.add_building(BuildingType(
+        name="Pyramids",
+        cost=150, is_wonder=True, wonder_effect="pyramids",
+        description="Wonder: All your cities receive a free Granary.",
+    ))
+    reg.add_building(BuildingType(
+        name="Great Library",
+        cost=200, is_wonder=True, wonder_effect="great_library",
+        requires_tech="Writing",
+        description="Wonder: All future techs cost 10% less science.",
+    ))
+    reg.add_building(BuildingType(
+        name="Hanging Gardens",
+        cost=180, is_wonder=True, wonder_effect="hanging_gardens",
+        description="Wonder: All cities receive +2 food per turn permanently.",
+    ))
+    reg.add_building(BuildingType(
+        name="Space Colony",
+        cost=400, is_wonder=True, wonder_effect="space_colony",
+        requires_tech="Space Flight",
+        description="Wonder: Triggers a Science Victory.",
     ))
     reg.mark_builtins()

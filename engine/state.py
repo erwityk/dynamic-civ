@@ -54,6 +54,7 @@ class Unit:
     promotion_pending: bool = False
     build_improvement: Optional[str] = None   # improvement currently being worked
     improvement_turns_left: int = 0           # turns until completion
+    embarked: bool = False  # §16: land unit on water tile
 
 
 @dataclass
@@ -69,6 +70,7 @@ class City:
     buildings: list[str] = field(default_factory=list)
     owner: str = "player"
     is_capital: bool = False
+    culture: int = 0  # §12 accumulated culture points
 
 
 @dataclass
@@ -77,6 +79,7 @@ class Tile:
     y: int
     terrain: Terrain
     improvement: Optional[str] = None  # set by Workers (§7)
+    visibility: str = "hidden"  # "hidden" | "explored" | "visible"
 
 
 @dataclass
@@ -101,6 +104,7 @@ class ResearchState:
     current_tech: Optional[str] = None      # tech currently being accumulated
     tech_progress: int = 0                  # beakers toward current_tech
     tech_just_completed: Optional[str] = None  # set on completion; cleared by UI
+    wonder_discount: float = 0.0  # fraction off tech costs from Great Library (§15)
 
 
 @dataclass
@@ -118,6 +122,9 @@ class GameState:
     research: ResearchState = field(default_factory=ResearchState)
     game_over: Optional[VictoryResult] = None
     _next_id: int = 1
+    game_id: str = ""  # mod sandbox directory identifier
+    built_wonders: set[str] = field(default_factory=set)  # §15
+    difficulty: str = "warlord"  # "chieftain" | "warlord" | "emperor" (§18)
 
     def new_id(self) -> int:
         i = self._next_id
