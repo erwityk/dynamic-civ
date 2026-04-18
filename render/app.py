@@ -7,9 +7,10 @@ import pygame
 from engine.registry import Registry
 from engine.state import City, GameState, Terrain, Unit, VictoryResult
 from engine.ai import run_ai_turn
-from engine.turn import attack, check_victory, end_turn, found_city, move_unit, population_cap, purchase_build, reset_unit_moves
+from engine.improvements import IMPROVEMENT_TURNS, valid_improvements
+from engine.turn import attack, check_victory, end_turn, found_city, move_unit, population_cap, purchase_build, reset_unit_moves, worker_improve
 from engine.tech import TECHS, available_techs
-from render.draw import GRID_ORIGIN, TILE, draw_city, draw_map, draw_top_bar, draw_unit, screen_to_tile, tile_to_screen
+from render.draw import GRID_ORIGIN, TILE, draw_city, draw_improvements, draw_map, draw_top_bar, draw_unit, screen_to_tile, tile_to_screen
 from render.ui import Button, TextInput, Toasts
 
 WINDOW_W = 1000
@@ -45,6 +46,7 @@ class App:
         self._city_counter = 0
         self._pending_promotion_unit: Optional[Unit] = None
         self.promotion_buttons: list[Button] = []
+        self.improve_buttons: list[Button] = []
 
         self.end_turn_btn = Button(
             rect=pygame.Rect(SIDEBAR_X, 40, SIDEBAR_W, 36),
@@ -284,6 +286,9 @@ class App:
             for b in self.promotion_buttons:
                 if b.handle(event):
                     break
+            for b in self.improve_buttons:
+                if b.handle(event):
+                    break
             if event.type == pygame.MOUSEBUTTONDOWN and event.pos[0] < SIDEBAR_X - 8:
                 self._handle_map_click(event.pos[0], event.pos[1], event.button)
             if event.type == pygame.KEYDOWN and not self.research_input.active:
@@ -298,6 +303,20 @@ class App:
             return False
         ut = self.reg.unit_types.get(self.selected_unit.type_name)
         return bool(ut and ut.can_found_city)
+
+    def _worker_selected(self) -> bool:
+        if not self.selected_unit:
+            return False
+        ut = self.reg.unit_types.get(self.selected_unit.type_name)
+        return bool(ut and ut.can_improve)
+
+    def _on_improve(self, unit: Unit, name: str) -> Callable[[], None]:
+        def fn() -> None:
+            if worker_improve(self.state, self.reg, unit, name):
+                self.toasts.add(f"Worker starts {name} ({unit.improvement_turns_left} turns)")
+            else:
+                self.toasts.add(f"Cannot build {name} here", color=(140, 40, 40))
+        return fn
 
     # ---------- drawing ----------
 
@@ -360,6 +379,36 @@ class App:
             self.found_btn.rect.topleft = (SIDEBAR_X, y + 4)
             self.found_btn.draw(self.screen, self.font)
             y += 36
+        # Worker improvement UI
+        if self._worker_selected():
+            self.improve_buttons = []
+            if u.build_improvement is not None:
+                y = self._draw_label(SIDEBAR_X, y, f"Building: {u.build_improvement}",
+                                     color=(180, 220, 140))
+                self._draw_progress(SIDEBAR_X, y, IMPROVEMENT_TURNS.get(u.build_improvement, 1) - u.improvement_turns_left,
+                                    IMPROVEMENT_TURNS.get(u.build_improvement, 1))
+                y += 14
+                y = self._draw_label(SIDEBAR_X, y,
+                                     f"{u.improvement_turns_left} turn(s) left",
+                                     color=(160, 200, 130), font=self.font_sm)
+            else:
+                tile = self.state.tile(u.x, u.y)
+                eligible = valid_improvements(tile.terrain) if tile else []
+                if eligible:
+                    y = self._draw_label(SIDEBAR_X, y, "Build improvement:", color=(200, 200, 220))
+                    for imp_name in eligible:
+                        btn = Button(
+                            rect=pygame.Rect(SIDEBAR_X, y, SIDEBAR_W, 24),
+                            label=imp_name,
+                            on_click=self._on_improve(u, imp_name),
+                        )
+                        btn.enabled = u.moves_left > 0
+                        btn.draw(self.screen, self.font_sm)
+                        self.improve_buttons.append(btn)
+                        y += 26
+                else:
+                    y = self._draw_label(SIDEBAR_X, y, "No improvements available",
+                                         color=(140, 140, 160), font=self.font_sm)
         return y + 6
 
     def _draw_city_panel(self, y: int) -> int:
@@ -561,6 +610,7 @@ class App:
         self.screen.fill((20, 20, 28))
         draw_top_bar(self.screen, self.state, self.font)
         draw_map(self.screen, self.state)
+        draw_improvements(self.screen, self.state, self.font_sm)
         for city in self.state.cities:
             draw_city(self.screen, city, self.font_sm)
         for unit in self.state.units:

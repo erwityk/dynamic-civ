@@ -5,6 +5,13 @@ import pygame
 from engine.registry import Registry
 from engine.state import GameState, Terrain, Unit
 
+IMPROVEMENT_ICONS: dict[str, tuple[str, tuple[int, int, int]]] = {
+    "Farm":        ("F", (160, 220, 80)),
+    "Mine":        ("M", (200, 170, 80)),
+    "Lumber Camp": ("L", (100, 180, 80)),
+    "Road":        ("=", (210, 200, 150)),
+}
+
 TILE = 32
 GRID_ORIGIN = (8, 40)  # top-left of map area inside window
 
@@ -41,6 +48,18 @@ def draw_map(surf: pygame.Surface, state: GameState) -> None:
             sx, sy = tile_to_screen(x, y)
             pygame.draw.rect(surf, TERRAIN_COLORS[t.terrain], (sx, sy, TILE, TILE))
             pygame.draw.rect(surf, (30, 50, 30), (sx, sy, TILE, TILE), width=1)
+
+
+def draw_improvements(surf: pygame.Surface, state: GameState, font: pygame.font.Font) -> None:
+    for x in range(state.width):
+        for y in range(state.height):
+            imp = state.tiles[x][y].improvement
+            if imp not in IMPROVEMENT_ICONS:
+                continue
+            letter, color = IMPROVEMENT_ICONS[imp]
+            sx, sy = tile_to_screen(x, y)
+            lbl = font.render(letter, True, color)
+            surf.blit(lbl, (sx + 2, sy + TILE - lbl.get_height() - 2))
 
 
 def draw_city(surf: pygame.Surface, city, font: pygame.font.Font) -> None:

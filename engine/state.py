@@ -52,6 +52,8 @@ class Unit:
     has_moved: bool = False
     attacks_this_turn: int = 0
     promotion_pending: bool = False
+    build_improvement: Optional[str] = None   # improvement currently being worked
+    improvement_turns_left: int = 0           # turns until completion
 
 
 @dataclass

@@ -116,7 +116,7 @@ Gems, Silk, Spices, etc. Harvested by Worker improvement; each unique luxury in 
 
 ## 7. City Improvements (Worker Actions)
 
-**Status:** Not started. No Worker unit type; no tile improvements.
+**Status: Implemented (§7a–§7d).** Worker unit added (attack=0, def=1, move=2, cost=30, `can_improve=True`). Four improvements: Farm (Grass/Plains, 3 turns, +1 food), Mine (Hills, 4 turns, +2 prod), Lumber Camp (Forest, 3 turns, +1 prod, converts terrain to Plains on completion), Road (any passable, 2 turns, reduces move cost to 1). Improvement yields summed from all tiles in 5×5 city radius each turn. Road movement wired into `can_move_to`/`move_unit`. Worker sidebar shows eligible improvements or progress bar while building. Improvement icons drawn on map tiles. Harvest Resource skipped pending §6.
 
 - Add a `Worker` unit type (`can_found_city=False`, no attack, moves 2).
 - Workers can spend turns improving the tile they occupy:
@@ -312,5 +312,5 @@ One-per-game buildings that can be constructed by any civ; once built, all other
 | 7 | Victory conditions (§10) — gives the game an end | **Done** |
 | 8 | Unit progression (§11) — rewards keeping units alive | **Done** |
 | 9 | Fog of war (§13) — changes exploration incentive | — |
-| 10 | Workers & improvements (§7) — tile optimization layer | — |
+| 10 | Workers & improvements (§7) — tile optimization layer | **Done** |
 | 11 | Save/Load (§14) — quality of life | — |

@@ -37,6 +37,7 @@ class UnitType:
     color: tuple[int, int, int]
     description: str
     can_found_city: bool = False
+    can_improve: bool = False  # can build tile improvements (Worker-like)
     maintenance: int = 0  # gold cost per turn
     max_hp: int = 10
     on_attack: Optional[Callable] = None  # hook signature: (attacker_stats, defender_stats) -> int bonus
@@ -105,6 +106,13 @@ def register_builtins(reg: Registry) -> None:
         shape="triangle", color=(200, 60, 60),
         description="Basic melee unit.",
         maintenance=1,
+    ))
+    reg.add_unit(UnitType(
+        name="Worker",
+        attack=0, defense=1, move=2, cost=30,
+        shape="square", color=(180, 160, 100),
+        description="Builds tile improvements (Farm, Mine, Lumber Camp, Road).",
+        can_improve=True,
     ))
     # Units — tech-locked
     reg.add_unit(UnitType(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .improvements import IMPROVEMENT_TERRAINS, IMPROVEMENT_TURNS, IMPROVEMENT_YIELDS, valid_improvements
 from .registry import Registry
 from .state import City, GameState, Terrain, Unit, VictoryResult
 from .tech import TECHS
@@ -48,7 +49,8 @@ def can_move_to(state: GameState, unit: Unit, nx: int, ny: int) -> bool:
     tile = state.tile(nx, ny)
     if tile is None or not tile.terrain.passable:
         return False
-    if unit.moves_left < tile.terrain.move_cost:
+    move_cost = 1 if tile.improvement == "Road" else tile.terrain.move_cost
+    if unit.moves_left < move_cost:
         return False
     # Same-owner stacking blocked; enemy-occupied tiles require attack() instead.
     blocker = state.unit_at(nx, ny)
@@ -60,7 +62,8 @@ def can_move_to(state: GameState, unit: Unit, nx: int, ny: int) -> bool:
 def move_unit(state: GameState, unit: Unit, nx: int, ny: int) -> bool:
     if not can_move_to(state, unit, nx, ny):
         return False
-    cost = state.tile(nx, ny).terrain.move_cost  # type: ignore[union-attr]
+    tile = state.tile(nx, ny)  # type: ignore[union-attr]
+    cost = 1 if tile.improvement == "Road" else tile.terrain.move_cost
     unit.x, unit.y = nx, ny
     unit.moves_left -= cost
     unit.has_moved = True
@@ -160,6 +163,16 @@ def _city_yields(city: City, state: GameState, reg: Registry) -> tuple[int, int,
             base_sci += bt.science
             base_gold += bt.gold
             gold_multiplier *= bt.gold_multiplier
+    # Sum improvement bonuses from worked tiles in the 5×5 radius (same as population_cap).
+    for dx in range(-2, 3):
+        for dy in range(-2, 3):
+            if dx == 0 and dy == 0:
+                continue
+            wtile = state.tile(city.x + dx, city.y + dy)
+            if wtile is not None and wtile.improvement in IMPROVEMENT_YIELDS:
+                fi, pi = IMPROVEMENT_YIELDS[wtile.improvement]
+                base_food += fi
+                base_prod += pi
     return base_food, base_prod, base_sci, int(base_gold * gold_multiplier)
 
 
@@ -220,6 +233,44 @@ def _find_spawn_tile(state: GameState, city: City) -> tuple[int, int] | None:
         if state.unit_at(nx, ny) is None:
             return (nx, ny)
     return None
+
+
+def worker_improve(state: GameState, reg: Registry, unit: Unit, improvement_name: str) -> bool:
+    """Start a Worker building an improvement on its current tile."""
+    ut = reg.unit_types.get(unit.type_name)
+    if ut is None or not ut.can_improve:
+        return False
+    if unit.moves_left <= 0:
+        return False
+    tile = state.tile(unit.x, unit.y)
+    if tile is None or not tile.terrain.passable:
+        return False
+    allowed = IMPROVEMENT_TERRAINS.get(improvement_name)
+    if allowed is not None and tile.terrain not in allowed:
+        return False
+    if tile.improvement == improvement_name:
+        return False  # already built
+    unit.build_improvement = improvement_name
+    unit.improvement_turns_left = IMPROVEMENT_TURNS[improvement_name]
+    unit.moves_left = 0
+    unit.has_moved = True
+    return True
+
+
+def _advance_worker_improvements(state: GameState) -> None:
+    """Tick worker progress and apply completed improvements to tiles."""
+    for u in list(state.units):
+        if u.build_improvement is None:
+            continue
+        u.improvement_turns_left -= 1
+        if u.improvement_turns_left <= 0:
+            tile = state.tile(u.x, u.y)
+            if tile is not None:
+                tile.improvement = u.build_improvement
+                if u.build_improvement == "Lumber Camp":
+                    tile.terrain = Terrain.PLAINS  # clear forest, removes defense bonus
+            u.build_improvement = None
+            u.improvement_turns_left = 0
 
 
 def _compute_score(state: GameState) -> int:
@@ -306,6 +357,7 @@ def end_turn(state: GameState, reg: Registry) -> None:
         state.units.remove(disbanded)
 
     state.turn += 1
+    _advance_worker_improvements(state)
     _apply_healing(state, reg)
     reset_unit_moves(state, reg)
     check_victory(state, reg)
